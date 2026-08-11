@@ -1384,6 +1384,12 @@ class TradingBot:
         eastern = ZoneInfo("America/New_York")
         utc = ZoneInfo("UTC")
 
+        # Native-timeframe live mode:
+        # Quick Flip uses Alpaca native 5Min REST bars.
+        # Do not mix the existing 1Min WebSocket stream
+        # with native 5Min strategy candles.
+        stream_factory = None
+
         now_fn = now_fn or (
             lambda: datetime.now(eastern)
         )
@@ -1870,9 +1876,35 @@ class TradingBot:
                     continue
 
                 try:
+                    evaluation_end_utc = (
+                        evaluation_end.astimezone(utc)
+                    )
+
+                    native_candles = []
+
+                    for bar in intraday_bars[symbol]:
+                        candle = (
+                            self._quick_flip_candle_from_bar(
+                                bar
+                            )
+                        )
+
+                        # Alpaca timestamps native 5Min bars
+                        # at the start of their interval.
+                        # Evaluate only after all five minutes
+                        # have completed.
+                        if (
+                            candle.timestamp
+                            + timedelta(minutes=5)
+                            <= evaluation_end_utc
+                        ):
+                            native_candles.append(
+                                candle
+                            )
+
                     result = (
                         self.quick_flip_monitor
-                        .evaluate_minute_bars(
+                        .evaluate_five_minute_candles(
                             symbol=symbol,
                             opening_bar=(
                                 self
@@ -1883,15 +1915,7 @@ class TradingBot:
                             atr_14=float(
                                 atr_14
                             ),
-                            minute_bars=(
-                                intraday_bars[
-                                    symbol
-                                ]
-                            ),
-                            evaluation_end=(
-                                evaluation_end
-                                .astimezone(utc)
-                            ),
+                            candles=native_candles,
                             cutoff_reached=(
                                 cutoff_reached
                             ),
@@ -1967,7 +1991,7 @@ class TradingBot:
                 try:
                     fetched = (
                         self.alpaca
-                        .get_historical_1min_bars(
+                        .get_historical_5min_bars(
                             symbols_csv=self.symbols_csv,
                             start_iso=start_utc.strftime(
                                 "%Y-%m-%dT%H:%M:%SZ"
@@ -1992,7 +2016,7 @@ class TradingBot:
 
                     fetched = {}
 
-                # Authoritative reconciliation second.
+                # Authoritative native 5Min reconciliation.
                 for symbol in self.stocks:
                     intraday_bars[
                         symbol
@@ -2132,7 +2156,7 @@ class TradingBot:
                 "WARNING: Quick Flip WebSocket "
                 f"collector stopped with error: "
                 f"{stream_error['value']}. "
-                "Final REST reconciliation will "
+                "Final native 5Min REST fetch will "
                 "continue."
             )
 
@@ -2147,7 +2171,7 @@ class TradingBot:
             try:
                 final_fetch = (
                     self.alpaca
-                    .get_historical_1min_bars(
+                    .get_historical_5min_bars(
                         symbols_csv=self.symbols_csv,
                         start_iso=(
                             fetch_start

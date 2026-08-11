@@ -1,23 +1,26 @@
 from datetime import datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from trading_bot.bot import TradingBot
 from trading_bot.models import Stock
-from trading_bot.quick_flip_monitor import (
-    QuickFlipMonitor,
-)
 
 
-EASTERN = ZoneInfo(
-    "America/New_York"
-)
+EASTERN = ZoneInfo("America/New_York")
 
 
 class FakeAlpaca:
-    def __init__(self):
+    def __init__(self, five_minute_bars=None):
         self.opening_calls = 0
         self.atr_calls = 0
-        self.minute_calls = []
+        self.five_minute_calls = []
+        self.one_minute_calls = 0
+
+        self.five_minute_bars = (
+            five_minute_bars
+            if five_minute_bars is not None
+            else {"TEST": []}
+        )
 
     def get_opening_15min_bars(
         self,
@@ -46,23 +49,47 @@ class FakeAlpaca:
             "TEST": 1.00,
         }
 
+    def get_historical_5min_bars(
+        self,
+        **kwargs,
+    ):
+        self.five_minute_calls.append(
+            dict(kwargs)
+        )
+
+        return self.five_minute_bars
+
     def get_historical_1min_bars(
         self,
         **kwargs,
     ):
-        self.minute_calls.append(
-            kwargs
+        self.one_minute_calls += 1
+
+        raise AssertionError(
+            "Quick Flip live must not request 1Min bars."
         )
 
-        return {
-            "TEST": [],
-        }
+
+class Clock:
+    def __init__(self, values):
+        self.values = list(values)
+        self.index = 0
+
+    def now(self):
+        if self.index >= len(self.values):
+            return self.values[-1]
+
+        value = self.values[self.index]
+        self.index += 1
+        return value
 
 
-def build_bot():
-    bot = TradingBot.__new__(
-        TradingBot
-    )
+def build_bot(
+    *,
+    alpaca=None,
+    monitor=None,
+):
+    bot = object.__new__(TradingBot)
 
     bot.stocks = {
         "TEST": Stock(
@@ -72,63 +99,58 @@ def build_bot():
 
     bot.symbols_csv = "TEST"
 
-    bot.quick_flip_monitor = (
-        QuickFlipMonitor()
+    bot.alpaca = (
+        alpaca
+        if alpaca is not None
+        else FakeAlpaca()
     )
 
     bot.quick_flip_results = {}
     bot.quick_flip_status = {}
 
-    bot.alpaca = FakeAlpaca()
+    if monitor is None:
+        class FakeMonitor:
+            def evaluate_five_minute_candles(
+                self,
+                **kwargs,
+            ):
+                return SimpleNamespace(
+                    status="WATCHING",
+                    signal=None,
+                )
+
+        monitor = FakeMonitor()
+
+    bot.quick_flip_monitor = monitor
 
     return bot
 
 
-class Clock:
-    def __init__(
-        self,
-        values,
-    ):
-        self.values = list(values)
-        self.index = 0
-
-    def now(self):
-        if self.index >= len(
-            self.values
-        ):
-            return self.values[-1]
-
-        value = self.values[
-            self.index
+def standard_clock():
+    return Clock(
+        [
+            datetime(
+                2026, 8, 11,
+                9, 50,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026, 8, 11,
+                9, 50,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026, 8, 11,
+                11, 0,
+                tzinfo=EASTERN,
+            ),
         ]
-
-        self.index += 1
-
-        return value
+    )
 
 
 def test_live_monitor_fetches_static_inputs_once():
     bot = build_bot()
-
-    clock = Clock(
-        [
-            datetime(
-                2026, 8, 11,
-                9, 50,
-                tzinfo=EASTERN,
-            ),
-            datetime(
-                2026, 8, 11,
-                9, 50,
-                tzinfo=EASTERN,
-            ),
-            datetime(
-                2026, 8, 11,
-                11, 0,
-                tzinfo=EASTERN,
-            ),
-        ]
-    )
+    clock = standard_clock()
 
     bot.run_quick_flip_monitor(
         date_str="2026-08-11",
@@ -137,36 +159,13 @@ def test_live_monitor_fetches_static_inputs_once():
         data_feed="iex",
     )
 
-    assert (
-        bot.alpaca.opening_calls
-        == 1
-    )
-
+    assert bot.alpaca.opening_calls == 1
     assert bot.alpaca.atr_calls == 1
 
 
-def test_live_monitor_incrementally_fetches_after_0945():
+def test_live_monitor_uses_native_5min_bars():
     bot = build_bot()
-
-    clock = Clock(
-        [
-            datetime(
-                2026, 8, 11,
-                9, 50,
-                tzinfo=EASTERN,
-            ),
-            datetime(
-                2026, 8, 11,
-                9, 50,
-                tzinfo=EASTERN,
-            ),
-            datetime(
-                2026, 8, 11,
-                11, 0,
-                tzinfo=EASTERN,
-            ),
-        ]
-    )
+    clock = standard_clock()
 
     bot.run_quick_flip_monitor(
         date_str="2026-08-11",
@@ -175,9 +174,7 @@ def test_live_monitor_incrementally_fetches_after_0945():
         data_feed="iex",
     )
 
-    first = (
-        bot.alpaca.minute_calls[0]
-    )
+    first = bot.alpaca.five_minute_calls[0]
 
     assert (
         first["start_iso"]
@@ -189,28 +186,90 @@ def test_live_monitor_incrementally_fetches_after_0945():
         == "2026-08-11T13:50:00Z"
     )
 
+    assert first["feed"] == "iex"
 
-def test_live_monitor_does_not_create_stop_fields():
+    assert bot.alpaca.one_minute_calls == 0
+
+
+def test_live_monitor_does_not_use_1min_websocket():
     bot = build_bot()
 
-    bot.stocks[
-        "TEST"
-    ].stop_loss = 8.88
+    class ForbiddenStream:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError(
+                "1Min WebSocket must not be created."
+            )
 
-    bot.stocks[
-        "TEST"
-    ].trading_stop_loss = 8.77
+    clock = standard_clock()
+
+    bot.run_quick_flip_monitor(
+        date_str="2026-08-11",
+        now_fn=clock.now,
+        sleep_fn=lambda seconds: None,
+        data_feed="iex",
+        stream_factory=ForbiddenStream,
+    )
+
+    assert bot.alpaca.one_minute_calls == 0
+
+
+def test_only_completed_native_5min_candles_are_evaluated():
+    alpaca = FakeAlpaca(
+        five_minute_bars={
+            "TEST": [
+                {
+                    "t": "2026-08-11T13:45:00Z",
+                    "o": 10.00,
+                    "h": 10.30,
+                    "l": 9.90,
+                    "c": 10.20,
+                    "v": 1000,
+                },
+                {
+                    "t": "2026-08-11T13:50:00Z",
+                    "o": 10.20,
+                    "h": 10.40,
+                    "l": 10.10,
+                    "c": 10.30,
+                    "v": 900,
+                },
+            ]
+        }
+    )
+
+    captured = []
+
+    class CaptureMonitor:
+        def evaluate_five_minute_candles(
+            self,
+            *,
+            candles,
+            **kwargs,
+        ):
+            captured.append(
+                list(candles)
+            )
+
+            return SimpleNamespace(
+                status="WATCHING",
+                signal=None,
+            )
+
+    bot = build_bot(
+        alpaca=alpaca,
+        monitor=CaptureMonitor(),
+    )
 
     clock = Clock(
         [
             datetime(
                 2026, 8, 11,
-                9, 50,
+                9, 52,
                 tzinfo=EASTERN,
             ),
             datetime(
                 2026, 8, 11,
-                9, 50,
+                9, 52,
                 tzinfo=EASTERN,
             ),
             datetime(
@@ -228,16 +287,35 @@ def test_live_monitor_does_not_create_stop_fields():
         data_feed="iex",
     )
 
-    stock = bot.stocks[
-        "TEST"
-    ]
+    first_evaluation = captured[0]
 
-    assert stock.stop_loss == 8.88
+    assert len(first_evaluation) == 1
 
     assert (
-        stock.trading_stop_loss
-        == 8.77
+        first_evaluation[0].timestamp.isoformat()
+        == "2026-08-11T13:45:00+00:00"
     )
+
+
+def test_live_monitor_does_not_create_stop_fields():
+    bot = build_bot()
+
+    bot.stocks["TEST"].stop_loss = 8.88
+    bot.stocks["TEST"].trading_stop_loss = 8.77
+
+    clock = standard_clock()
+
+    bot.run_quick_flip_monitor(
+        date_str="2026-08-11",
+        now_fn=clock.now,
+        sleep_fn=lambda seconds: None,
+        data_feed="iex",
+    )
+
+    stock = bot.stocks["TEST"]
+
+    assert stock.stop_loss == 8.88
+    assert stock.trading_stop_loss == 8.77
 
 
 def test_live_monitor_stops_at_1100():
@@ -254,260 +332,25 @@ def test_live_monitor_stops_at_1100():
         data_feed="iex",
     )
 
-    assert (
-        bot.alpaca.opening_calls
-        == 0
-    )
-
+    assert bot.alpaca.opening_calls == 0
     assert bot.alpaca.atr_calls == 0
-
-    assert bot.alpaca.minute_calls == []
-
-
-def test_rest_reconciliation_overrides_stream_bar(
-    monkeypatch,
-):
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    from trading_bot.bot import TradingBot
-    from trading_bot.models import Stock
-
-    eastern = ZoneInfo("America/New_York")
-
-    bot = object.__new__(TradingBot)
-
-    bot.stocks = {
-        "OPEN": Stock(symbol="OPEN"),
-    }
-
-    bot.symbols_csv = "OPEN"
-
-    class FakeAlpaca:
-        def get_opening_15min_bars(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": {
-                    "t": "2026-08-11T13:30:00Z",
-                    "o": 10.00,
-                    "h": 11.00,
-                    "l": 9.00,
-                    "c": 9.50,
-                }
-            }
-
-        def get_previous_day_ranges_all(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": 1.00,
-            }
-
-        def get_historical_1min_bars(
-            self,
-            symbols_csv,
-            start_iso,
-            end_iso,
-            feed,
-        ):
-            return {
-                "OPEN": [
-                    {
-                        "t": "2026-08-11T13:45:00Z",
-                        "o": 10.00,
-                        "h": 10.35,
-                        "l": 9.88,
-                        "c": 10.30,
-                        "v": 175,
-                    }
-                ]
-            }
-
-    bot.alpaca = FakeAlpaca()
-
-    captured = {}
-
-    class FakeQuickFlipMonitor:
-        def evaluate_minute_bars(
-            self,
-            *,
-            symbol,
-            opening_bar,
-            atr_14,
-            minute_bars,
-            evaluation_end,
-            cutoff_reached,
-        ):
-            if minute_bars:
-                captured["bar"] = dict(
-                    minute_bars[0]
-                )
-
-            class Result:
-                status = "WATCHING"
-                signal = None
-
-            return Result()
-
-    bot.quick_flip_monitor = (
-        FakeQuickFlipMonitor()
-    )
-
-    bot.quick_flip_results = {}
-    bot.quick_flip_status = {}
-
-    class FakeStream:
-        def __init__(
-            self,
-            symbols,
-            feed,
-        ):
-            self.symbols = symbols
-
-        def collect_until(
-            self,
-            stop_time,
-            stop_event=None,
-        ):
-            return self.snapshot()
-
-        def snapshot(self):
-            return {
-                "OPEN": [
-                    {
-                        "t": "2026-08-11T13:45:00Z",
-                        "o": 10.00,
-                        "h": 10.20,
-                        "l": 9.90,
-                        "c": 10.10,
-                        "v": 100,
-                    }
-                ]
-            }
-
-    times = iter(
-        [
-            datetime(
-                2026,
-                8,
-                11,
-                9,
-                46,
-                tzinfo=eastern,
-            ),
-            datetime(
-                2026,
-                8,
-                11,
-                9,
-                46,
-                tzinfo=eastern,
-            ),
-            datetime(
-                2026,
-                8,
-                11,
-                11,
-                0,
-                tzinfo=eastern,
-            ),
-        ]
-    )
-
-    bot.run_quick_flip_monitor(
-        date_str="2026-08-11",
-        now_fn=lambda: next(times),
-        sleep_fn=lambda seconds: None,
-        data_feed="iex",
-        stream_factory=FakeStream,
-    )
-
-    assert captured["bar"]["h"] == 10.35
-    assert captured["bar"]["l"] == 9.88
-    assert captured["bar"]["c"] == 10.30
-    assert captured["bar"]["v"] == 175
+    assert bot.alpaca.five_minute_calls == []
+    assert bot.alpaca.one_minute_calls == 0
 
 
 def test_same_quick_flip_signal_is_previewed_once():
-    from datetime import datetime
-    from types import SimpleNamespace
-    from zoneinfo import ZoneInfo
-
-    from trading_bot.bot import TradingBot
-    from trading_bot.models import Stock
-
-    eastern = ZoneInfo("America/New_York")
-
-    bot = object.__new__(TradingBot)
-
-    bot.stocks = {
-        "OPEN": Stock(symbol="OPEN"),
-    }
-    bot.symbols_csv = "OPEN"
-
-    class FakeAlpaca:
-        def get_opening_15min_bars(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": {
-                    "t": "2026-08-11T13:30:00Z",
-                    "o": 10.0,
-                    "h": 11.0,
-                    "l": 9.0,
-                    "c": 9.5,
-                }
-            }
-
-        def get_previous_day_ranges_all(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": 1.0,
-            }
-
-        def get_historical_1min_bars(
-            self,
-            symbols_csv,
-            start_iso,
-            end_iso,
-            feed,
-        ):
-            return {
-                "OPEN": []
-            }
-
-    bot.alpaca = FakeAlpaca()
-
     signal = SimpleNamespace(
         signal="INVEST",
         pattern="HAMMER",
         entry_price=9.25,
         take_profit_1=10.0,
         take_profit_2=11.0,
-        reversal_time=(
-            "2026-08-11T13:50:00Z"
-        ),
-        confirmation_time=(
-            "2026-08-11T13:55:00Z"
-        ),
+        reversal_time="2026-08-11T13:50:00Z",
+        confirmation_time="2026-08-11T13:55:00Z",
     )
 
     class FakeMonitor:
-        def evaluate_minute_bars(
+        def evaluate_five_minute_candles(
             self,
             **kwargs,
         ):
@@ -516,18 +359,16 @@ def test_same_quick_flip_signal_is_previewed_once():
                 signal=signal,
             )
 
-    bot.quick_flip_monitor = FakeMonitor()
-    bot.quick_flip_results = {}
-    bot.quick_flip_status = {}
+    bot = build_bot(
+        monitor=FakeMonitor()
+    )
 
     class FakePreviewService:
         instances = []
 
         def __init__(self):
             self.calls = []
-            self.__class__.instances.append(
-                self
-            )
+            self.__class__.instances.append(self)
 
         def prepare_previews(
             self,
@@ -541,7 +382,7 @@ def test_same_quick_flip_signal_is_previewed_once():
                 {
                     "status": "PREVIEW READY",
                     "submitted": False,
-                    "symbol": "OPEN",
+                    "symbol": "TEST",
                     "quantity": 10,
                     "limitBuy": 9.25,
                     "takeProfit1": 10.0,
@@ -549,43 +390,42 @@ def test_same_quick_flip_signal_is_previewed_once():
                 }
             ]
 
-    times = iter([
-        datetime(
-            2026, 8, 11,
-            9, 46,
-            tzinfo=eastern,
-        ),
-        datetime(
-            2026, 8, 11,
-            9, 46,
-            tzinfo=eastern,
-        ),
-        datetime(
-            2026, 8, 11,
-            9, 47,
-            tzinfo=eastern,
-        ),
-        datetime(
-            2026, 8, 11,
-            11, 0,
-            tzinfo=eastern,
-        ),
-    ])
+    clock = Clock(
+        [
+            datetime(
+                2026, 8, 11,
+                9, 50,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026, 8, 11,
+                9, 50,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026, 8, 11,
+                9, 55,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026, 8, 11,
+                11, 0,
+                tzinfo=EASTERN,
+            ),
+        ]
+    )
 
     bot.run_quick_flip_monitor(
         date_str="2026-08-11",
-        now_fn=lambda: next(times),
+        now_fn=clock.now,
         sleep_fn=lambda seconds: None,
         data_feed="iex",
-        stream_factory=None,
         preview_service_factory=(
             FakePreviewService
         ),
     )
 
-    service = (
-        FakePreviewService.instances[0]
-    )
+    service = FakePreviewService.instances[0]
 
     assert len(service.calls) == 1
 
@@ -603,62 +443,6 @@ def test_same_quick_flip_signal_is_previewed_once():
 def test_quick_flip_preview_ready_sends_one_macos_notification(
     monkeypatch,
 ):
-    from datetime import datetime
-    from types import SimpleNamespace
-    from zoneinfo import ZoneInfo
-
-    from trading_bot.bot import TradingBot
-    from trading_bot.models import Stock
-
-    eastern = ZoneInfo("America/New_York")
-
-    bot = object.__new__(TradingBot)
-
-    bot.stocks = {
-        "OPEN": Stock(symbol="OPEN"),
-    }
-    bot.symbols_csv = "OPEN"
-
-    class FakeAlpaca:
-        def get_opening_15min_bars(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": {
-                    "t": "2026-08-11T13:30:00Z",
-                    "o": 10.0,
-                    "h": 11.0,
-                    "l": 9.0,
-                    "c": 9.5,
-                }
-            }
-
-        def get_previous_day_ranges_all(
-            self,
-            symbols_csv,
-            date_str,
-            feed,
-        ):
-            return {
-                "OPEN": 1.0,
-            }
-
-        def get_historical_1min_bars(
-            self,
-            symbols_csv,
-            start_iso,
-            end_iso,
-            feed,
-        ):
-            return {
-                "OPEN": []
-            }
-
-    bot.alpaca = FakeAlpaca()
-
     signal = SimpleNamespace(
         signal="INVEST",
         pattern="HAMMER",
@@ -670,7 +454,7 @@ def test_quick_flip_preview_ready_sends_one_macos_notification(
     )
 
     class FakeMonitor:
-        def evaluate_minute_bars(
+        def evaluate_five_minute_candles(
             self,
             **kwargs,
         ):
@@ -679,9 +463,9 @@ def test_quick_flip_preview_ready_sends_one_macos_notification(
                 signal=signal,
             )
 
-    bot.quick_flip_monitor = FakeMonitor()
-    bot.quick_flip_results = {}
-    bot.quick_flip_status = {}
+    bot = build_bot(
+        monitor=FakeMonitor()
+    )
 
     class FakePreviewService:
         def prepare_previews(
@@ -692,7 +476,7 @@ def test_quick_flip_preview_ready_sends_one_macos_notification(
                 {
                     "status": "PREVIEW READY",
                     "submitted": False,
-                    "symbol": "OPEN",
+                    "symbol": "TEST",
                     "quantity": 10,
                     "limitBuy": 9.25,
                     "takeProfit1": 10.0,
@@ -716,30 +500,13 @@ def test_quick_flip_preview_ready_sends_one_macos_notification(
         fake_run,
     )
 
-    times = iter([
-        datetime(
-            2026, 8, 11,
-            9, 46,
-            tzinfo=eastern,
-        ),
-        datetime(
-            2026, 8, 11,
-            9, 46,
-            tzinfo=eastern,
-        ),
-        datetime(
-            2026, 8, 11,
-            11, 0,
-            tzinfo=eastern,
-        ),
-    ])
+    clock = standard_clock()
 
     bot.run_quick_flip_monitor(
         date_str="2026-08-11",
-        now_fn=lambda: next(times),
+        now_fn=clock.now,
         sleep_fn=lambda seconds: None,
         data_feed="iex",
-        stream_factory=None,
         preview_service_factory=(
             FakePreviewService
         ),
@@ -750,7 +517,7 @@ def test_quick_flip_preview_ready_sends_one_macos_notification(
     command = calls[0][0][0]
 
     assert command[0] == "osascript"
-    assert "OPEN" in command[-1]
+    assert "TEST" in command[-1]
     assert "9.2500" in command[-1]
     assert "10.0000" in command[-1]
     assert "11.0000" in command[-1]

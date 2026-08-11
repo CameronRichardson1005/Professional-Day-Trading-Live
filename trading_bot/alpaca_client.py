@@ -260,6 +260,93 @@ class AlpacaClient:
 
         return results
 
+    def get_historical_5min_bars(
+            self,
+            symbols_csv: str,
+            start_iso: str,
+            end_iso: str,
+            feed: str = MARKET_DATA_FEED,
+    ) -> dict[str, list[dict]]:
+        """
+        Fetch valid native Alpaca five-minute bars in
+        chronological order, following Alpaca pagination.
+
+        These are authoritative 5Min bars from Alpaca.
+        They are not reconstructed from one-minute data.
+        """
+        symbols = self._symbols_from_csv(symbols_csv)
+        feed = self._validate_feed(feed)
+
+        base_params = {
+            "symbols": symbols_csv,
+            "timeframe": "5Min",
+            "start": start_iso,
+            "end": end_iso,
+            "adjustment": "raw",
+            "feed": feed,
+            "currency": "usd",
+            "limit": 1000,
+            "sort": "desc",
+        }
+
+        results = {
+            symbol: []
+            for symbol in symbols
+        }
+
+        page_token = None
+
+        while True:
+            params = dict(base_params)
+
+            if page_token:
+                params["page_token"] = page_token
+
+            data = self._request(
+                params=params,
+                label="Historical 5-minute bars fetch",
+            )
+
+            bars_by_symbol = data.get("bars", {})
+
+            if not isinstance(bars_by_symbol, dict):
+                raise RuntimeError(
+                    "Malformed historical 5-minute response."
+                )
+
+            for symbol in symbols:
+                raw_bars = bars_by_symbol.get(
+                    symbol,
+                    [],
+                )
+
+                if not isinstance(raw_bars, list):
+                    print(
+                        f"{symbol}: malformed historical "
+                        "5-minute response"
+                    )
+                    continue
+
+                results[symbol].extend(
+                    bar
+                    for bar in raw_bars
+                    if self._is_valid_bar(bar)
+                )
+
+            page_token = data.get(
+                "next_page_token"
+            )
+
+            if not page_token:
+                break
+
+        for bars in results.values():
+            bars.sort(
+                key=lambda bar: str(bar["t"])
+            )
+
+        return results
+
     def get_opening_15min_bars(
             self,
             symbols_csv: str,
