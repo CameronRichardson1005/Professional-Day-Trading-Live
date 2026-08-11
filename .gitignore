@@ -1,0 +1,48 @@
+# Secrets
+.env
+*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# Logs
+logs/
+
+# Generated backtest reports
+reports/*.csv
+
+.env.save
+.env.save
+
+# Generated backtest output and local archives
+reports/
+trading-bot-source.zip
+
+# Webull SDK local files
+conf/
+webull_data_sdk.log*
+webull_trade_sdk.log*
+
+# Local migration backups
+backups/
+
+# Webull SDK authentication cache
+conf/token.txt
+webull_trade_sdk.log
+
+# Local Webull approval state
+runtime/webull_approvals.json
+runtime/webull_approvals.json.tmp
+
+# Local Webull approval state
+runtime/webull_approvals.json
+runtime/webull_approvals.json.tmp
