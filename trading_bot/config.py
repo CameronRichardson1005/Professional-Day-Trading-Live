@@ -35,39 +35,11 @@ if ALPACA_DATA_FEED not in {"iex", "sip"}:
 MARKET_DATA_FEED = ALPACA_DATA_FEED
 
 
-# Active signal strategy.
-#
-# MANIPULATION_OPENING_15M remains available for historical
-# replay, comparison, and audit purposes.
-#
-# FIBONACCI_61_8 is the intended active paper/preview strategy.
-SUPPORTED_STRATEGIES = {
-    "MANIPULATION_OPENING_15M",
-    "FIBONACCI_61_8",
-}
-
-ACTIVE_STRATEGY = os.getenv(
-    "ACTIVE_STRATEGY",
-    "MANIPULATION_OPENING_15M",
-).strip().upper()
-
-if ACTIVE_STRATEGY not in SUPPORTED_STRATEGIES:
-    raise RuntimeError(
-        "ACTIVE_STRATEGY must be one of: "
-        + ", ".join(sorted(SUPPORTED_STRATEGIES))
-    )
-
+# Standalone live Manipulation strategy.
 MANIPULATION_STRATEGY_NAME = "MANIPULATION_OPENING_15M"
-FIBONACCI_STRATEGY_NAME = "FIBONACCI_61_8"
 
 # Real broker submission remains intentionally unsupported.
 REAL_ORDER_SUBMISSION_ENABLED = False
-
-# Fibonacci needs post-opening minute bars to observe the
-# impulse, retracement, bullish confirmation, and breakout.
-FIBONACCI_MONITOR_START = "09:45"
-FIBONACCI_MONITOR_CUTOFF = "11:00"
-FIBONACCI_MONITOR_INTERVAL_SECONDS = 60
 
 # Quick Flip monitors completed 5-minute reversal candles
 # after the 09:30-09:45 opening range has closed.

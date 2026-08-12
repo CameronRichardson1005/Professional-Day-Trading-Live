@@ -208,7 +208,7 @@ def test_strategy_metadata_survives_restart(
     enriched = WebullPaperOrderRecord(
         **{
             **enriched.__dict__,
-            "strategy_name": "FIBONACCI_61_8",
+            "strategy_name": "MANIPULATION_OPENING_15M",
             "reward_risk": 2.25,
             "confirmation_time": "10:07",
             "retracement_price": 4.24,
@@ -223,7 +223,7 @@ def test_strategy_metadata_survives_restart(
         path
     ).load()["paper-1"]
 
-    assert stored.strategy_name == "FIBONACCI_61_8"
+    assert stored.strategy_name == "MANIPULATION_OPENING_15M"
     assert stored.reward_risk == 2.25
     assert stored.confirmation_time == "10:07"
     assert stored.retracement_price == 4.24

@@ -28,7 +28,7 @@ def test_signal_signature_is_stable_and_invest_only():
 
     stock = bot.stocks["OPEN"]
     stock.signal = "INVEST"
-    stock.strategy_name = "FIBONACCI_61_8"
+    stock.strategy_name = "MANIPULATION_OPENING_15M"
     stock.limit_buy = 10.50
     stock.limit_sell = 11.25
     stock.trading_stop_loss = 10.20

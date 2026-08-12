@@ -381,7 +381,7 @@ def enriched_closed_order(
 
     return replace(
         trade,
-        strategy_name="FIBONACCI_61_8",
+        strategy_name="MANIPULATION_OPENING_15M",
         reward_risk=reward_risk,
         confirmation_time=confirmation_time,
         retracement_price=9.8,

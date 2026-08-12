@@ -9,7 +9,6 @@ from .config import (
     DASHBOARD_REQUEST_TIMEOUT,
     DASHBOARD_SITE_TOKEN,
     DASHBOARD_URL,
-    FIBONACCI_STRATEGY_NAME,
     MANIPULATION_STRATEGY_NAME,
     MARKET_DATA_FEED,
 )
@@ -137,7 +136,7 @@ class DashboardExporter:
         """
         Build strategy-neutral dashboard metadata.
 
-        Manipulation-specific and Fibonacci-specific fields coexist
+        Strategy metadata fields coexist
         so historical sessions remain readable.
         """
         payload: dict[str, Any] = {
@@ -267,101 +266,10 @@ class DashboardExporter:
         ]
 
     @classmethod
-    def _fibonacci_rules(
-            cls,
-            stock: Stock,
-    ) -> list[dict[str, Any]]:
-        impulse = cls._optional_float(
-            stock.impulse_atr_multiple
-        )
-        volume_ratio = cls._optional_float(
-            stock.pullback_volume_ratio
-        )
-        reward_risk = cls._optional_float(
-            stock.reward_risk
-        )
-
-        return [
-            {
-                "label": "61.8% retracement setup",
-                "passed": (
-                    stock.retracement_price is not None
-                ),
-                "actual": (
-                    (
-                        f"${float(stock.retracement_price):.4f}"
-                    )
-                    if stock.retracement_price is not None
-                    else "Not confirmed"
-                ),
-                "requirement": (
-                    "Price touches the 61.8% Fibonacci "
-                    "retracement"
-                ),
-            },
-            {
-                "label": "Impulse strength",
-                "passed": (
-                    impulse is not None
-                    and impulse >= 0.50
-                ),
-                "actual": (
-                    f"{impulse:.3f} ATR"
-                    if impulse is not None
-                    else "Unavailable"
-                ),
-                "requirement": "At least 0.50 ATR",
-            },
-            {
-                "label": "Pullback volume",
-                "passed": (
-                    volume_ratio is not None
-                    and volume_ratio < 1.0
-                ),
-                "actual": (
-                    f"{volume_ratio:.3f}"
-                    if volume_ratio is not None
-                    else "Unavailable"
-                ),
-                "requirement": "Ratio below 1.0",
-            },
-            {
-                "label": "Reward / risk",
-                "passed": (
-                    reward_risk is not None
-                    and reward_risk >= 1.5
-                ),
-                "actual": (
-                    f"{reward_risk:.2f}"
-                    if reward_risk is not None
-                    else "Unavailable"
-                ),
-                "requirement": "At least 1.50",
-            },
-            {
-                "label": "Bullish confirmation",
-                "passed": bool(
-                    stock.confirmation_time
-                ),
-                "actual": (
-                    stock.confirmation_time
-                    or "Not confirmed"
-                ),
-                "requirement": (
-                    "Bullish confirmation candle within "
-                    "the permitted confirmation window"
-                ),
-            },
-        ]
-
-    @classmethod
     def _rules(
             cls,
             stock: Stock,
     ) -> list[dict[str, Any]]:
-        if stock.strategy_name == FIBONACCI_STRATEGY_NAME:
-            return cls._fibonacci_rules(stock)
-
         return cls._manipulation_rules(stock)
 
     @classmethod
@@ -371,8 +279,7 @@ class DashboardExporter:
             bars_processed: int,
     ) -> dict[str, Any]:
         # Dashboard completeness refers only to the 09:30-09:44
-        # opening window. Later Fibonacci-monitoring bars must not
-        # increase this value beyond the expected 15 bars.
+        # opening window and must not exceed the expected 15 bars.
         bars_processed = max(
             0,
             min(
@@ -510,8 +417,6 @@ class DashboardExporter:
             "REPLAY",
             "LIVE",
             "LIVE_MANIPULATION",
-            "LIVE_FIBONACCI",
-            "LIVE_FIBONACCI_FINAL",
         }
 
         if source not in supported_sources:
