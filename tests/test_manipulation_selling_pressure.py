@@ -112,3 +112,60 @@ def test_evaluate_selling_pressure():
 
     assert result.entry_levels[0.00] == 9.5
     assert result.entry_levels[0.15] == 9.425
+
+
+def test_average_opening_volume():
+    from trading_bot.manipulation_selling_pressure import (
+        calculate_average_opening_volume,
+    )
+
+    bars = [
+        {"v": 100_000},
+        {"v": 120_000},
+        {"v": 140_000},
+        {"v": 160_000},
+        {"v": 180_000},
+    ]
+
+    assert calculate_average_opening_volume(
+        bars
+    ) == pytest.approx(140_000)
+
+
+def test_average_opening_volume_ignores_invalid_volume():
+    from trading_bot.manipulation_selling_pressure import (
+        calculate_average_opening_volume,
+    )
+
+    bars = [
+        {"v": 100_000},
+        {"v": 120_000},
+        {"v": 0},
+        {"v": None},
+        {"v": 140_000},
+        {"v": 160_000},
+        {"v": 180_000},
+    ]
+
+    assert calculate_average_opening_volume(
+        bars
+    ) == pytest.approx(140_000)
+
+
+def test_average_opening_volume_requires_history():
+    from trading_bot.manipulation_selling_pressure import (
+        calculate_average_opening_volume,
+    )
+
+    bars = [
+        {"v": 100_000},
+        {"v": 120_000},
+        {"v": 140_000},
+    ]
+
+    assert (
+        calculate_average_opening_volume(
+            bars
+        )
+        is None
+    )

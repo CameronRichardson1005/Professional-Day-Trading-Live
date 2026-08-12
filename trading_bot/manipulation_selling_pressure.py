@@ -206,3 +206,43 @@ def evaluate_selling_pressure(
         ),
         entry_levels=entry_levels,
     )
+
+
+def calculate_average_opening_volume(
+    historical_opening_bars: list[dict],
+    *,
+    minimum_sessions: int = 5,
+) -> float | None:
+    """
+    Calculate average historical 09:30-09:45 opening
+    volume.
+
+    Invalid or zero-volume bars are ignored.
+
+    Research only. This does not alter live strategy
+    routing.
+    """
+    volumes = []
+
+    for bar in historical_opening_bars:
+        try:
+            volume = float(
+                bar.get("v", 0) or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+            AttributeError,
+        ):
+            continue
+
+        if volume > 0:
+            volumes.append(volume)
+
+    if len(volumes) < minimum_sessions:
+        return None
+
+    return (
+        sum(volumes)
+        / len(volumes)
+    )

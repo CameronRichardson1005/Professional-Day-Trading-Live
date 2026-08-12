@@ -347,6 +347,182 @@ class AlpacaClient:
 
         return results
 
+    def get_historical_opening_15min_bars(
+            self,
+            symbols_csv: str,
+            start_date: str,
+            end_date: str,
+            feed: str = MARKET_DATA_FEED,
+    ) -> dict[str, list[dict]]:
+        """
+        Fetch Alpaca native 15-minute bars covering the
+        09:30-09:45 ET opening candle across a historical
+        date range.
+
+        Only the 09:30 ET opening candle for each trading
+        session is returned.
+
+        These bars are native Alpaca 15Min data and are not
+        reconstructed from one-minute bars.
+        """
+        symbols = self._symbols_from_csv(
+            symbols_csv
+        )
+        feed = self._validate_feed(feed)
+
+        eastern = ZoneInfo(
+            "America/New_York"
+        )
+        utc = ZoneInfo("UTC")
+
+        start_day = datetime.strptime(
+            start_date,
+            "%Y-%m-%d",
+        ).date()
+
+        end_day = datetime.strptime(
+            end_date,
+            "%Y-%m-%d",
+        ).date()
+
+        start_time = datetime.combine(
+            start_day,
+            time(hour=9, minute=30),
+            tzinfo=eastern,
+        ).astimezone(utc)
+
+        end_time = datetime.combine(
+            end_day,
+            time(hour=9, minute=45),
+            tzinfo=eastern,
+        ).astimezone(utc)
+
+        base_params = {
+            "symbols": symbols_csv,
+            "timeframe": "15Min",
+            "start": start_time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+            "end": end_time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+            "adjustment": "raw",
+            "feed": feed,
+            "currency": "usd",
+            "limit": 10_000,
+            "sort": "asc",
+        }
+
+        results = {
+            symbol: []
+            for symbol in symbols
+        }
+
+        page_token = None
+
+        while True:
+            params = dict(base_params)
+
+            if page_token:
+                params[
+                    "page_token"
+                ] = page_token
+
+            data = self._request(
+                params=params,
+                label=(
+                    "Historical opening "
+                    "15-minute bars fetch"
+                ),
+            )
+
+            bars_by_symbol = data.get(
+                "bars",
+                {},
+            )
+
+            if not isinstance(
+                bars_by_symbol,
+                dict,
+            ):
+                raise RuntimeError(
+                    "Malformed historical opening "
+                    "15-minute response."
+                )
+
+            for symbol in symbols:
+                raw_bars = (
+                    bars_by_symbol.get(
+                        symbol,
+                        [],
+                    )
+                )
+
+                if not isinstance(
+                    raw_bars,
+                    list,
+                ):
+                    print(
+                        f"{symbol}: malformed "
+                        "historical opening "
+                        "15-minute response"
+                    )
+                    continue
+
+                for bar in raw_bars:
+                    if not self._is_valid_bar(
+                        bar
+                    ):
+                        continue
+
+                    timestamp_text = str(
+                        bar["t"]
+                    ).strip()
+
+                    if timestamp_text.endswith(
+                        "Z"
+                    ):
+                        timestamp_text = (
+                            timestamp_text[
+                                :-1
+                            ]
+                            + "+00:00"
+                        )
+
+                    bar_time = (
+                        datetime
+                        .fromisoformat(
+                            timestamp_text
+                        )
+                        .astimezone(
+                            eastern
+                        )
+                    )
+
+                    if (
+                        bar_time.hour == 9
+                        and bar_time.minute == 30
+                    ):
+                        results[
+                            symbol
+                        ].append(bar)
+
+            page_token = data.get(
+                "next_page_token"
+            )
+
+            if not page_token:
+                break
+
+        for bars in results.values():
+            bars.sort(
+                key=lambda bar: str(
+                    bar["t"]
+                )
+            )
+
+        return results
+
     def get_opening_15min_bars(
             self,
             symbols_csv: str,
