@@ -326,7 +326,7 @@ def test_inverted_hammer_can_invest():
         candle(
             5,
             9.40,
-            10.10,
+            9.95,
             9.38,
             9.45,
         ),
@@ -354,7 +354,7 @@ def test_inverted_hammer_can_invest():
         == "INVERTED_HAMMER"
     )
 
-    assert result.signal.entry_price == 10.10
+    assert result.signal.entry_price == 9.95
 
 
 def test_bullish_engulfing_can_invest():
