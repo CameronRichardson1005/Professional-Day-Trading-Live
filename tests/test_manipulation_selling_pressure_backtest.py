@@ -138,3 +138,36 @@ def test_lower_entry_changes_stop():
     )
 
     assert lower < normal
+
+
+def test_after_hours_bar_does_not_resolve_trade():
+    bars = [
+        {
+            "t": "2026-08-12T13:45:00Z",
+            "o": 10.10,
+            "h": 10.20,
+            "l": 9.95,
+            "c": 10.10,
+            "v": 1000,
+        },
+        {
+            # 16:00 ET during daylight saving time.
+            "t": "2026-08-12T20:00:00Z",
+            "o": 10.20,
+            "h": 11.00,
+            "l": 10.10,
+            "c": 10.90,
+            "v": 1000,
+        },
+    ]
+
+    result = evaluate_entry_outcome(
+        bars=bars,
+        adjustment=0.0,
+        entry=10.00,
+        target=10.50,
+        trading_stop=9.80,
+    )
+
+    assert result.filled is True
+    assert result.outcome == "OPEN"

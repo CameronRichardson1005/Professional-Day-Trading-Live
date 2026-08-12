@@ -76,12 +76,21 @@ def filter_post_opening_bars(
     for bar in bars:
         local = _bar_time_et(bar)
 
-        if (
+        after_opening = (
             local.hour > 9
             or (
                 local.hour == 9
                 and local.minute >= 45
             )
+        )
+
+        before_regular_close = (
+            local.hour < 16
+        )
+
+        if (
+            after_opening
+            and before_regular_close
         ):
             result.append(bar)
 
