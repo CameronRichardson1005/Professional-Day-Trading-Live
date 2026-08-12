@@ -32,33 +32,17 @@ def test_live_tracker_does_not_use_1min_tracker_or_stream(
         lambda write_sheets=True: None
     )
 
-    class ForbiddenTracker:
-        def track_window(self, *args, **kwargs):
-            raise AssertionError(
-                "1Min tracker must not run."
-            )
-
-        def merge_stream_bars(
-            self,
-            *args,
-            **kwargs,
-        ):
-            raise AssertionError(
-                "1Min stream reconciliation must not run."
-            )
-
-    bot.tracker = ForbiddenTracker()
-
-    class ForbiddenStream:
-        def __init__(self, *args, **kwargs):
-            raise AssertionError(
-                "1Min WebSocket must not be created."
-            )
-
-    monkeypatch.setattr(
+    # The standalone live bot must not even import the
+    # legacy 1Min WebSocket dependency.
+    assert not hasattr(
         bot_module,
         "AlpacaStockStream",
-        ForbiddenStream,
+    )
+
+    # The standalone live bot must not require a tracker.
+    assert not hasattr(
+        bot,
+        "tracker",
     )
 
     strategy_calls = []

@@ -75,13 +75,13 @@ def test_dashboard_analytics_final_session_only(
 
     assert (
         bot._dashboard_paper_analytics(
-            source="LIVE_FIBONACCI"
+            source="REPLAY"
         )
         is None
     )
 
     result = bot._dashboard_paper_analytics(
-        source="LIVE_FIBONACCI_FINAL"
+        source="LIVE_MANIPULATION"
     )
 
     assert result is not None
@@ -128,7 +128,7 @@ def test_dashboard_analytics_failure_is_nonfatal(
     )
 
     result = bot._dashboard_paper_analytics(
-        source="LIVE_FIBONACCI_FINAL"
+        source="LIVE_MANIPULATION"
     )
 
     assert result is None
@@ -145,7 +145,7 @@ def test_exporter_includes_paper_analytics():
 
     payload = DashboardExporter.build_payload(
         date_str="2026-08-08",
-        source="LIVE_FIBONACCI_FINAL",
+        source="LIVE_MANIPULATION",
         stocks={},
         processed_bars={},
         data_feed="iex",
@@ -158,7 +158,7 @@ def test_exporter_includes_paper_analytics():
 def test_exporter_omits_paper_analytics_when_missing():
     payload = DashboardExporter.build_payload(
         date_str="2026-08-08",
-        source="LIVE_FIBONACCI_FINAL",
+        source="LIVE_MANIPULATION",
         stocks={},
         processed_bars={},
         data_feed="iex",

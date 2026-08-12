@@ -9,12 +9,6 @@ from trading_bot.bot import TradingBot
 def test_ticker_failure_does_not_stop_remaining_tickers(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        bot_module,
-        "ACTIVE_STRATEGY",
-        "MANIPULATION_OPENING_15M",
-    )
-
     events = []
     bot = object.__new__(TradingBot)
 
@@ -135,6 +129,6 @@ def test_orders_write_is_attempted_when_invest_write_fails():
     assert events == [
         "strategy calculated",
         "sheets initialised",
-        "Fibonacci Invest attempted",
-        "Fibonacci Orders attempted",
+        "Invest attempted",
+        "Orders attempted",
     ]

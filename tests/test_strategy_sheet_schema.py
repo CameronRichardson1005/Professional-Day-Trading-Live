@@ -19,11 +19,11 @@ def make_client():
     return client, captured
 
 
-def test_fibonacci_strategy_sheet_fields():
+def test_manipulation_strategy_sheet_fields():
     client, captured = make_client()
 
     stock = Stock(symbol="OPEN")
-    stock.strategy_name = "FIBONACCI_61_8"
+    stock.strategy_name = "MANIPULATION_OPENING_15M"
     stock.strategy_status = (
         "ACTIVE PAPER/PREVIEW — NOT SUBMITTED"
     )
@@ -54,7 +54,7 @@ def test_fibonacci_strategy_sheet_fields():
     row = captured["replacement_rows"][0]
     values = dict(zip(columns, row))
 
-    assert values["Strategy"] == "FIBONACCI_61_8"
+    assert values["Strategy"] == "MANIPULATION_OPENING_15M"
     assert values["Signal"] == "INVEST"
     assert values["Entry"] == 4.25
     assert values["Target"] == 4.60
@@ -70,7 +70,7 @@ def test_missing_optional_strategy_values_are_safe():
     client, captured = make_client()
 
     stock = Stock(symbol="PLTR")
-    stock.strategy_name = "FIBONACCI_61_8"
+    stock.strategy_name = "MANIPULATION_OPENING_15M"
     stock.strategy_status = (
         "ACTIVE PAPER/PREVIEW — NOT SUBMITTED"
     )

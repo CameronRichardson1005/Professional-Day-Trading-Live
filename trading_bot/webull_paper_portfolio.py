@@ -405,7 +405,7 @@ def latest_prices_from_completed_bars(
     Return the latest valid completed-bar close for each symbol.
 
     This function performs no market-data request. It only reads
-    bars already supplied by the Fibonacci intraday cache.
+    bars already supplied by the live strategy workflow.
     """
     latest: dict[str, tuple[datetime, float]] = {}
 

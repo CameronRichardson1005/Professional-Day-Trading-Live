@@ -117,14 +117,14 @@ def test_file_contains_only_redacted_fields(
     assert "proposalFingerprint" not in serialized
 
 
-def test_fibonacci_metadata_survives_restart(
+def test_strategy_metadata_survives_restart(
     tmp_path,
 ):
     path = tmp_path / "previews.json"
 
     enriched = preview()
     enriched.update({
-        "strategyName": "FIBONACCI_61_8",
+        "strategyName": "MANIPULATION_OPENING_15M",
         "rewardRisk": 2.25,
         "confirmationTime": "10:07",
         "retracementPrice": 4.24,
@@ -142,7 +142,7 @@ def test_fibonacci_metadata_survives_restart(
 
     assert stored is not None
     assert stored["strategyName"] == (
-        "FIBONACCI_61_8"
+        "MANIPULATION_OPENING_15M"
     )
     assert stored["rewardRisk"] == 2.25
     assert stored["confirmationTime"] == "10:07"

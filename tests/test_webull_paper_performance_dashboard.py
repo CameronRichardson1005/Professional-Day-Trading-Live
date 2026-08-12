@@ -50,7 +50,7 @@ def test_dashboard_performance_only_on_final_session(
 
     result = bot._dashboard_paper_performance(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="REPLAY",
     )
 
     assert result is None
@@ -69,7 +69,7 @@ def test_final_dashboard_contains_daily_performance(
 
     result = bot._dashboard_paper_performance(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI_FINAL",
+        source="LIVE_MANIPULATION",
     )
 
     assert result["ordersApproved"] == 5
@@ -107,7 +107,7 @@ def test_dashboard_performance_failure_is_nonfatal(
 
     result = bot._dashboard_paper_performance(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI_FINAL",
+        source="LIVE_MANIPULATION",
     )
 
     assert result is None

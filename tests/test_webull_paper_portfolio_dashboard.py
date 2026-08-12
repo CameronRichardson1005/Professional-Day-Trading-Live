@@ -77,7 +77,7 @@ def make_portfolio():
     )
 
 
-def test_dashboard_portfolio_only_for_live_fibonacci():
+def test_dashboard_portfolio_only_for_live_manipulation():
     bot = object.__new__(TradingBot)
     bot._webull_paper_portfolio_snapshot = (
         make_portfolio()
@@ -96,7 +96,7 @@ def test_dashboard_portfolio_only_for_live_fibonacci():
             date_str="2026-08-07",
             source="LIVE_MANIPULATION",
         )
-        is None
+        is not None
     )
 
 
@@ -108,7 +108,7 @@ def test_dashboard_portfolio_contains_account_state():
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="LIVE_MANIPULATION",
     )
 
     assert result["startingCash"] == 10_000
@@ -140,7 +140,7 @@ def test_final_dashboard_uses_same_portfolio_shape():
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI_FINAL",
+        source="LIVE_MANIPULATION",
     )
 
     assert result is not None
@@ -175,7 +175,7 @@ def test_dashboard_portfolio_reconstructs_if_snapshot_missing(
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="LIVE_MANIPULATION",
     )
 
     assert seen["store"] is store
@@ -200,7 +200,7 @@ def test_dashboard_portfolio_failure_is_nonfatal(
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="LIVE_MANIPULATION",
     )
 
     assert result is None
@@ -243,7 +243,7 @@ def test_dashboard_portfolio_includes_risk_status(
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="LIVE_MANIPULATION",
     )
 
     assert seen["date_str"] == "2026-08-07"
@@ -285,7 +285,7 @@ def test_dashboard_risk_failure_is_nonfatal(
 
     result = bot._dashboard_paper_portfolio(
         date_str="2026-08-07",
-        source="LIVE_FIBONACCI",
+        source="LIVE_MANIPULATION",
     )
 
     assert result is not None
