@@ -8,7 +8,7 @@ QUICK_FLIP_STRATEGY_NAME = "QUICK_FLIP"
 
 # Opening 15-minute candle must be at least
 # 25% larger than the 14-day ATR.
-QUICK_FLIP_LIQUIDITY_MULTIPLIER = 1.25
+QUICK_FLIP_LIQUIDITY_MULTIPLIER = 0.25
 
 
 @dataclass(frozen=True)

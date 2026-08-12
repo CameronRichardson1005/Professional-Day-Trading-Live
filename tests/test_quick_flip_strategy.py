@@ -72,9 +72,9 @@ def test_opening_candle_below_threshold_is_not_liquidity():
 
     opening = make_candle(
         10.00,
-        11.20,
+        10.20,
         10.00,
-        10.50,
+        10.10,
     )
 
     box = strategy.build_opening_range(
@@ -92,9 +92,9 @@ def test_five_minute_candle_does_not_determine_liquidity():
 
     opening = make_candle(
         10.00,
-        11.10,
+        10.20,
         10.00,
-        10.50,
+        10.10,
     )
 
     box = strategy.build_opening_range(

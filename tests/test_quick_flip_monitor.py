@@ -156,7 +156,7 @@ def test_opening_bar_controls_liquidity_not_5m_bars():
     result = monitor.evaluate_five_minute_candles(
         symbol="TEST",
         opening_bar=opening_candle(
-            high=11.20,
+            high=10.20,
             low=10.00,
         ),
         atr_14=1.00,
