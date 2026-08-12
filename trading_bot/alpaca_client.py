@@ -573,14 +573,56 @@ class AlpacaClient:
 
         bars_by_symbol = data.get("bars", {})
 
-        return {
-            symbol: self._first_valid_bar(
-                bars=bars_by_symbol.get(symbol, []),
-                symbol=symbol,
-                label="opening 15-minute",
+        results = {}
+
+        for symbol in self._symbols_from_csv(
+            symbols_csv
+        ):
+            raw_bars = bars_by_symbol.get(
+                symbol,
+                [],
             )
-            for symbol in self._symbols_from_csv(symbols_csv)
-        }
+
+            opening_bar = None
+
+            for bar in raw_bars:
+                if not self._is_valid_bar(bar):
+                    continue
+
+                timestamp_text = str(
+                    bar["t"]
+                ).strip()
+
+                if timestamp_text.endswith("Z"):
+                    timestamp_text = (
+                        timestamp_text[:-1]
+                        + "+00:00"
+                    )
+
+                bar_time = (
+                    datetime
+                    .fromisoformat(
+                        timestamp_text
+                    )
+                    .astimezone(eastern)
+                )
+
+                if (
+                    bar_time.hour == 9
+                    and bar_time.minute == 30
+                ):
+                    opening_bar = bar
+                    break
+
+            if opening_bar is None:
+                print(
+                    f"{symbol}: no valid 09:30 ET "
+                    "opening 15-minute bar"
+                )
+
+            results[symbol] = opening_bar
+
+        return results
 
     def get_previous_day_ranges_all(
         self,
