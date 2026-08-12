@@ -1106,164 +1106,40 @@ class TradingBot:
                 )
 
         print()
-        print("Starting real-time 1-minute tracker...")
         print(
-            "Tracking window:",
-            market_open_eastern.strftime("%H:%M"),
-            "to",
-            "09:45",
-            "New York time",
+            "Native-timeframe live mode enabled."
         )
 
-        stream_result: dict[str, object] = {
-            "bars": {},
-            "error": None,
-        }
-
-        stream_stop_time = (
-            window_end
-            + timedelta(minutes=1)
-            + timedelta(seconds=5)
+        opening_close_eastern = datetime.combine(
+            today_eastern,
+            time(hour=9, minute=45),
+            tzinfo=eastern,
         )
 
-        def collect_stream() -> None:
-            try:
-                stream = AlpacaStockStream(
-                    symbols=selected_symbols,
-                    feed=MARKET_DATA_FEED,
-                )
-                stream_result["bars"] = (
-                    stream.collect_until(
-                        stop_time=stream_stop_time,
-                    )
-                )
-            except Exception as error:
-                stream_result["error"] = error
+        now_eastern = datetime.now(eastern)
 
-        stream_thread = Thread(
-            target=collect_stream,
-            name="alpaca-market-data-stream",
-            daemon=True,
-        )
+        if now_eastern < opening_close_eastern:
+            wait_seconds = (
+                opening_close_eastern
+                - now_eastern
+            ).total_seconds()
+
+            print(
+                "Waiting for the 09:30-09:45 "
+                "opening candle to close..."
+            )
+
+            Event().wait(
+                wait_seconds
+            )
 
         print(
-            f"Starting {MARKET_DATA_FEED.upper()} "
-            "WebSocket collector..."
+            "Opening window complete."
         )
-        stream_thread.start()
-
-        self.tracker.track_window(
-            date_str=date_str,
-            window_start=window_start,
-            window_end=window_end,
+        print(
+            "Manipulation will use Alpaca "
+            "native 15Min bars."
         )
-
-        stream_thread.join(timeout=10)
-
-        stream_error = stream_result.get("error")
-        streamed_bars = stream_result.get("bars", {})
-
-        if stream_thread.is_alive():
-            print(
-                "WebSocket collector did not stop in time. "
-                "Continuing with reconciled REST bars."
-            )
-        elif stream_error is not None:
-            print(
-                "WebSocket collector failed. "
-                "Reconciled REST tracking was preserved."
-            )
-            print(f"WebSocket error: {stream_error}")
-        elif isinstance(streamed_bars, dict):
-            streamed_count = sum(
-                len(bars)
-                for bars in streamed_bars.values()
-                if isinstance(bars, list)
-            )
-
-            if streamed_count > 0:
-                print(
-                    f"Merging {streamed_count} WebSocket bar(s)..."
-                )
-
-                self.tracker.merge_stream_bars(
-                    streamed_bars=streamed_bars,
-                )
-            else:
-                print(
-                    "No WebSocket bars were available to merge."
-                )
-
-            print(
-                "WebSocket bars merged successfully."
-            )
-
-        if write_sheets:
-            opening_stocks = getattr(
-                self,
-                "stocks",
-                {},
-            )
-
-            opening_bars_by_symbol = {
-                symbol: list(
-                    getattr(
-                        stock,
-                        "minute_bars",
-                        [],
-                    )
-                )
-                for symbol, stock
-                in opening_stocks.items()
-            }
-
-            if opening_bars_by_symbol:
-                try:
-                    self.write_new_minute_bars_history(
-                        date_str=date_str,
-                        bars_by_symbol=(
-                            opening_bars_by_symbol
-                        ),
-                        source="LIVE_RECONCILED_OPENING",
-                        data_feed=MARKET_DATA_FEED,
-                    )
-
-                    print(
-                        "Reconciled opening minute bars "
-                        "written to new trading workbook."
-                    )
-
-                except Exception as error:
-                    print(
-                        "WARNING: New trading workbook "
-                        "minute history write failed. "
-                        "Live processing will continue."
-                    )
-                    print(
-                        f"Minute history error: {error}"
-                    )
-
-        processed_bars = {
-            symbol: (
-                stock.green_minutes
-                + stock.red_minutes
-            )
-            for symbol, stock in getattr(self, "stocks", {}).items()
-        }
-
-        if ACTIVE_STRATEGY == FIBONACCI_STRATEGY_NAME:
-            print()
-            print(
-                "Opening tracking completed. "
-                "Starting Fibonacci monitoring..."
-            )
-
-            self.run_fibonacci_monitor(
-                date_str=date_str,
-                write_sheets=write_sheets,
-                publish_dashboard=publish_dashboard,
-            )
-            return
 
         print()
         print("Calculating preserved manipulation results...")
@@ -1315,6 +1191,20 @@ class TradingBot:
                     f"New workbook error: {error}"
                 )
 
+        processed_bars = {
+            symbol: (
+                15
+                if getattr(
+                    stock,
+                    "opening_bar",
+                    None,
+                ) is not None
+                else 0
+            )
+            for symbol, stock
+            in self.stocks.items()
+        }
+
         if publish_dashboard:
             self._publish_dashboard_session(
                 date_str=date_str,
@@ -1337,7 +1227,7 @@ class TradingBot:
             self.run_quick_flip_monitor(
                 date_str=date_str,
                 data_feed=MARKET_DATA_FEED,
-                stream_factory=AlpacaStockStream,
+                stream_factory=None,
                 preview_service_factory=(
                     QuickFlipWebullPreviewService
                 ),
