@@ -110,6 +110,10 @@ class TradingBot:
         self.scanner_statistics = None
         self.symbol_reliability = None
 
+        # Forward research only. These variants never replace
+        # Manipulation signal, entry, target, stop, or preview.
+        self.manipulation_selling_pressure_shadows = {}
+
         # Legacy workbook used by the existing tracker and
         # historical workflow.
         self.sheets = None
@@ -359,6 +363,114 @@ class TradingBot:
             selected_symbols=selected_symbols,
             scanner=self.scanner,
         )
+
+    def build_manipulation_selling_pressure_shadows(
+            self,
+            date_str: str,
+            data_feed: str = MARKET_DATA_FEED,
+    ) -> dict:
+        """
+        Build forward research-only selling-pressure variants.
+
+        Live Manipulation Stock values are never modified.
+        """
+        from datetime import datetime, timedelta
+
+        from .manipulation_selling_pressure_runner import (
+            prior_opening_average,
+        )
+        from .manipulation_selling_pressure_shadow import (
+            build_selling_pressure_shadow,
+        )
+
+        current_day = datetime.strptime(
+            date_str,
+            "%Y-%m-%d",
+        )
+
+        history_start = (
+            current_day - timedelta(days=60)
+        ).strftime("%Y-%m-%d")
+
+        symbols = [
+            stock.symbol
+            for stock in self.stocks.values()
+            if (
+                stock.signal == "INVEST"
+                and isinstance(
+                    stock.opening_bar,
+                    dict,
+                )
+            )
+        ]
+
+        if not symbols:
+            self.manipulation_selling_pressure_shadows = {}
+            return {}
+
+        historical = (
+            self.alpaca.get_historical_opening_15min_bars(
+                symbols_csv=",".join(symbols),
+                start_date=history_start,
+                end_date=date_str,
+                feed=data_feed,
+            )
+        )
+
+        shadows = {}
+
+        for symbol in symbols:
+            stock = self.stocks[symbol]
+
+            average_volume = prior_opening_average(
+                opening_bars=historical.get(
+                    symbol,
+                    [],
+                ),
+                current_date=date_str,
+            )
+
+            if average_volume is None:
+                continue
+
+            shadow = build_selling_pressure_shadow(
+                stock=stock,
+                average_opening_volume=average_volume,
+            )
+
+            if shadow is not None:
+                shadows[symbol] = shadow
+
+        self.manipulation_selling_pressure_shadows = shadows
+
+        return shadows
+
+
+    def write_manipulation_selling_pressure_research(
+            self,
+            date_str: str,
+    ) -> None:
+        """
+        Write forward selling-pressure shadow setups into the
+        standalone research workbook only.
+        """
+        self.initialise_trading_sheets()
+
+        if self.trading_sheets is None:
+            raise RuntimeError(
+                "New trading workbook was not initialised."
+            )
+
+        self.trading_sheets.\
+            write_manipulation_selling_pressure_research(
+                date_str=date_str,
+                shadows=getattr(
+                    self,
+                    "manipulation_selling_pressure_shadows",
+                    {},
+                ),
+            )
+
 
     def write_new_manipulation_results(
             self,
@@ -1097,9 +1209,46 @@ class TradingBot:
             )
             print(f"Strategy error: {error}")
 
+        try:
+            shadows = (
+                self.build_manipulation_selling_pressure_shadows(
+                    date_str=date_str,
+                    data_feed=MARKET_DATA_FEED,
+                )
+            )
+
+            if shadows:
+                print(
+                    "Selling-pressure shadow trigger(s): "
+                    + ", ".join(
+                        sorted(shadows)
+                    )
+                )
+            else:
+                print(
+                    "No selling-pressure shadow triggers "
+                    "for this session."
+                )
+
+        except Exception as error:
+            self.manipulation_selling_pressure_shadows = {}
+
+            print(
+                "WARNING: Selling-pressure research "
+                "calculation failed. "
+                "Live Manipulation remains unchanged."
+            )
+            print(
+                f"Selling-pressure research error: {error}"
+            )
+
         if write_sheets:
             try:
                 self.write_new_manipulation_results(
+                    date_str=date_str,
+                )
+
+                self.write_manipulation_selling_pressure_research(
                     date_str=date_str,
                 )
                 print(

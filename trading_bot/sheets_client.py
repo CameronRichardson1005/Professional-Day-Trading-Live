@@ -2033,6 +2033,182 @@ class SheetsClient:
             f"in the {sheet_name} sheet."
         )
 
+    def write_manipulation_selling_pressure_research(
+            self,
+            date_str: str,
+            shadows: dict,
+            sheet_name: str = (
+                "Manipulation Selling Pressure Research"
+            ),
+    ) -> None:
+        """
+        Reconcile forward selling-pressure shadow variants.
+
+        Research only:
+        - does not modify the live Manipulation strategy;
+        - does not create a Webull preview;
+        - does not submit a broker order.
+        """
+        columns = [
+            "Date",
+            "Symbol",
+            "Close Location",
+            "Relative Volume",
+            "Normal Entry",
+            "Adaptive Entry",
+            "Target",
+            "Variant A Stop (1.00x)",
+            "Variant B Stop (1.25x)",
+            "Variant A Outcome",
+            "Variant B Outcome",
+        ]
+
+        worksheet = self.get_or_create_worksheet(
+            title=sheet_name,
+            rows=250,
+            cols=len(columns),
+        )
+
+        rows = []
+
+        for symbol in sorted(shadows):
+            shadow = shadows[symbol]
+
+            if shadow is None:
+                continue
+
+            rows.append([
+                date_str,
+                shadow.symbol,
+                self._optional_round(
+                    shadow.close_location,
+                    digits=4,
+                ),
+                self._optional_round(
+                    shadow.relative_volume,
+                    digits=3,
+                ),
+                self._optional_round(
+                    shadow.normal_entry,
+                ),
+                self._optional_round(
+                    shadow.adaptive_entry,
+                ),
+                self._optional_round(
+                    shadow.target,
+                ),
+                self._optional_round(
+                    shadow.variant_a_stop,
+                ),
+                self._optional_round(
+                    shadow.variant_b_stop,
+                ),
+                shadow.variant_a_outcome,
+                shadow.variant_b_outcome,
+            ])
+
+        self._replace_date_rows(
+            worksheet=worksheet,
+            columns=columns,
+            date_str=date_str,
+            replacement_rows=rows,
+            last_column="K",
+            sheet_name=sheet_name,
+        )
+
+        print(
+            f"{len(rows)} selling-pressure research row(s) "
+            f"reconciled in the {sheet_name} sheet."
+        )
+
+    def write_manipulation_selling_pressure_research(
+            self,
+            date_str: str,
+            shadows: dict,
+            sheet_name: str = (
+                "Manipulation Selling Pressure Research"
+            ),
+    ) -> None:
+        """
+        Reconcile forward selling-pressure shadow variants.
+
+        Research only:
+        - does not modify the live Manipulation strategy;
+        - does not create a Webull preview;
+        - does not submit a broker order.
+        """
+        columns = [
+            "Date",
+            "Symbol",
+            "Close Location",
+            "Relative Volume",
+            "Normal Entry",
+            "Adaptive Entry",
+            "Target",
+            "Variant A Stop (1.00x)",
+            "Variant B Stop (1.25x)",
+            "Variant A Outcome",
+            "Variant B Outcome",
+        ]
+
+        worksheet = self.get_or_create_worksheet(
+            title=sheet_name,
+            rows=250,
+            cols=len(columns),
+        )
+
+        rows = []
+
+        for symbol in sorted(shadows):
+            shadow = shadows[symbol]
+
+            if shadow is None:
+                continue
+
+            rows.append([
+                date_str,
+                shadow.symbol,
+                self._optional_round(
+                    shadow.close_location,
+                    digits=4,
+                ),
+                self._optional_round(
+                    shadow.relative_volume,
+                    digits=3,
+                ),
+                self._optional_round(
+                    shadow.normal_entry,
+                ),
+                self._optional_round(
+                    shadow.adaptive_entry,
+                ),
+                self._optional_round(
+                    shadow.target,
+                ),
+                self._optional_round(
+                    shadow.variant_a_stop,
+                ),
+                self._optional_round(
+                    shadow.variant_b_stop,
+                ),
+                shadow.variant_a_outcome,
+                shadow.variant_b_outcome,
+            ])
+
+        self._replace_date_rows(
+            worksheet=worksheet,
+            columns=columns,
+            date_str=date_str,
+            replacement_rows=rows,
+            last_column="K",
+            sheet_name=sheet_name,
+        )
+
+        print(
+            f"{len(rows)} selling-pressure research row(s) "
+            f"reconciled in the {sheet_name} sheet."
+        )
+
     def write_quick_flip_results(
             self,
             date_str: str,
