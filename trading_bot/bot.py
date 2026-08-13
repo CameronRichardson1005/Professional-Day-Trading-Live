@@ -4043,6 +4043,177 @@ class TradingBot:
                 date_str=date_str,
             )
 
+    def run_historical_backfill(
+            self,
+            date_str: str,
+    ) -> dict:
+        """
+        Rebuild one completed historical trading session in the
+        clean Manipulation + Quick Flip Google workbook.
+
+        Historical backfill:
+        - validates the NYSE trading date;
+        - reruns the historical scanner;
+        - evaluates Manipulation and Quick Flip;
+        - reconciles strategy rows by date;
+        - archives genuine historical one-minute bars;
+        - creates no broker orders;
+        - publishes nothing to the live Cloudflare dashboard.
+        """
+        from .market_calendar import nyse_trading_dates
+
+        eastern = ZoneInfo("America/New_York")
+        utc = ZoneInfo("UTC")
+
+        trading_date = datetime.strptime(
+            date_str,
+            "%Y-%m-%d",
+        ).date()
+
+        if not nyse_trading_dates(
+            trading_date,
+            trading_date,
+        ):
+            raise ValueError(
+                "NYSE was closed on "
+                f"{date_str}."
+            )
+
+        print()
+        print("===================================")
+        print(" Historical Trading Backfill")
+        print("===================================")
+        print(f"Trading date: {date_str}")
+
+        selected_symbols = (
+            self.refresh_symbols_for_date(
+                date_str=date_str,
+            )
+        )
+
+        strategy_summary = (
+            self.calculate_parallel_strategies(
+                date_str=date_str,
+            )
+        )
+
+        try:
+            shadows = (
+                self.build_manipulation_selling_pressure_shadows(
+                    date_str=date_str,
+                    data_feed=MARKET_DATA_FEED,
+                )
+            )
+        except Exception as error:
+            shadows = {}
+            self.manipulation_selling_pressure_shadows = {}
+
+            print(
+                "WARNING: Historical selling-pressure "
+                "research calculation failed."
+            )
+            print(
+                f"Selling-pressure research error: {error}"
+            )
+
+        # Historical backfills never create Webull previews.
+        # An empty list also removes stale preview rows for this
+        # date if the backfill is rerun.
+        self.quick_flip_webull_previews = []
+
+        self.initialise_trading_sheets()
+
+        if self.trading_sheets is None:
+            raise RuntimeError(
+                "New trading workbook was not initialised."
+            )
+
+        if self.scanner_statistics is not None:
+            self.write_new_trading_scanner(
+                date_str=date_str,
+                selected_symbols=selected_symbols,
+            )
+
+        self.write_new_manipulation_results(
+            date_str=date_str,
+        )
+
+        self.write_manipulation_selling_pressure_research(
+            date_str=date_str,
+        )
+
+        # Write Quick Flip directly rather than using
+        # write_new_quick_flip_results(), because that live helper
+        # also rebuilds the today-only Trade Previews dashboard.
+        self.trading_sheets.write_quick_flip_results(
+            date_str=date_str,
+            results=self.quick_flip_results,
+            sheet_name="Quick Flip Signals",
+        )
+
+        self.trading_sheets.write_quick_flip_previews(
+            date_str=date_str,
+            previews=[],
+            sheet_name="Quick Flip Previews",
+        )
+
+        # Archive the actual historical minute data used for the
+        # completed morning session. No missing bars are fabricated.
+        session_start = datetime.combine(
+            trading_date,
+            time(hour=9, minute=30),
+            tzinfo=eastern,
+        ).astimezone(utc)
+
+        session_end = datetime.combine(
+            trading_date,
+            time(hour=11, minute=0),
+            tzinfo=eastern,
+        ).astimezone(utc)
+
+        market_data = (
+            self._get_webull_strategy_market_data()
+        )
+
+        bars_by_symbol = (
+            market_data.get_historical_1min_bars(
+                symbols_csv=self.symbols_csv,
+                start_iso=session_start.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ),
+                end_iso=session_end.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                ),
+            )
+        )
+
+        self.write_new_minute_bars_history(
+            date_str=date_str,
+            bars_by_symbol=bars_by_symbol,
+            source="HISTORICAL_BACKFILL",
+            data_feed=MARKET_DATA_FEED,
+        )
+
+        print(
+            "Historical Google Sheets backfill "
+            "completed successfully."
+        )
+
+        return {
+            "date": date_str,
+            "selected_symbols": selected_symbols,
+            "manipulation": strategy_summary[
+                "manipulation"
+            ],
+            "quick_flip": strategy_summary[
+                "quick_flip"
+            ],
+            "selling_pressure_symbols": sorted(
+                shadows
+            ),
+        }
+
+
     @staticmethod
     def _session_clock(
             date_value,
@@ -4131,10 +4302,17 @@ class TradingBot:
 
         date_str = now.strftime("%Y-%m-%d")
 
-        if now.weekday() >= 5:
+        from .market_calendar import nyse_trading_dates
+
+        if not nyse_trading_dates(
+            now.date(),
+            now.date(),
+        ):
             print()
-            print("The market is closed today.")
-            print("Production mode was not started.")
+            print(
+                "NYSE is closed today. "
+                "Production mode was not started."
+            )
             return
 
         market_open = datetime.combine(

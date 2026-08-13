@@ -10,6 +10,7 @@ from trading_bot.utils import setup_logging
 
 AVAILABLE_MODES = (
     "market-day",
+    "backfill",
     "test",
     "smoke",
     "preflight",
@@ -382,6 +383,88 @@ def main() -> int:
             print(
                 "NO WEBULL BROKER ORDER "
                 "WAS SUBMITTED"
+            )
+
+        # -----------------------------------------
+        # Historical Google Sheets backfill
+        # -----------------------------------------
+        elif mode == "backfill":
+            if len(sys.argv) != 3:
+                print(
+                    "Usage: python main.py "
+                    "backfill YYYY-MM-DD"
+                )
+                return 2
+
+            date_str = sys.argv[2]
+
+            try:
+                trading_date = date.fromisoformat(
+                    date_str
+                )
+            except ValueError:
+                print(
+                    "Backfill date must use YYYY-MM-DD."
+                )
+                return 2
+
+            if not nyse_trading_dates(
+                trading_date,
+                trading_date,
+            ):
+                print(
+                    "Backfill rejected: NYSE was "
+                    f"closed on {date_str}."
+                )
+                return 2
+
+            try:
+                result = bot.run_historical_backfill(
+                    date_str=date_str,
+                )
+            except Exception as error:
+                print(
+                    "Historical backfill failed: "
+                    f"{error}"
+                )
+                return 1
+
+            print()
+            print(
+                "HISTORICAL GOOGLE SHEETS "
+                "BACKFILL COMPLETE"
+            )
+            print("--------------------------------")
+            print(f"Trading date: {date_str}")
+            print(
+                "Selected symbols: "
+                + ", ".join(
+                    result["selected_symbols"]
+                )
+            )
+            print(
+                "Manipulation INVEST: "
+                + (
+                    ", ".join(
+                        result["manipulation"]
+                    )
+                    if result["manipulation"]
+                    else "None"
+                )
+            )
+            print(
+                "Quick Flip INVEST: "
+                + (
+                    ", ".join(
+                        result["quick_flip"]
+                    )
+                    if result["quick_flip"]
+                    else "None"
+                )
+            )
+            print(
+                "Google Sheets rows were reconciled "
+                "by trading date."
             )
 
         # -----------------------------------------
