@@ -78,6 +78,7 @@ CANDIDATE_TICKERS = [
     "HOOD",
     "AFRM",
     "DKNG",
+    "IONQ",
 ]
 
 ATR_MULTIPLIER = 0.25

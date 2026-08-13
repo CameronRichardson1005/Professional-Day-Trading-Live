@@ -117,7 +117,8 @@ def test_scanner_universe_has_controlled_size():
     assert 20 <= len(universe) <= 30
     assert len(universe) == len(set(universe))
     assert len(TICKERS) == 6
-    assert len(CANDIDATE_TICKERS) == 18
+    assert len(CANDIDATE_TICKERS) == 19
+    assert "IONQ" in CANDIDATE_TICKERS
 
 
 def test_default_scanner_never_selects_more_than_nine():

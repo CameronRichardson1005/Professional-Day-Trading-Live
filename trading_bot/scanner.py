@@ -1,3 +1,5 @@
+import math
+
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
@@ -13,9 +15,20 @@ class StockStats:
 
     @property
     def ranking_score(self) -> float:
+        """
+        Rank eligible stocks by percentage movement while
+        rewarding liquidity without allowing extremely large
+        share volume to dominate the score.
+
+        Long-history research from 2025-01-02 through
+        2026-08-11 found this log-volume ranking materially
+        more robust than the previous linear-volume ranking.
+        """
         return (
             self.avg_range_pct
-            * (self.avg_volume / 1_000_000)
+            * math.log1p(
+                self.avg_volume / 500_000
+            )
         )
 
 
@@ -37,7 +50,7 @@ class OpeningReliability:
 class ScannerRules:
     minimum_valid_bars: int = 20
     minimum_price: float = 2.0
-    maximum_price: float = 30.0
+    maximum_price: float | None = None
     minimum_average_volume: float = 500_000
     minimum_average_range: float = 0.20
     minimum_average_range_pct: float = 4.0
@@ -72,7 +85,10 @@ class StockScanner:
 
         if stats.avg_price < rules.minimum_price:
             failures.append("PRICE BELOW MINIMUM")
-        elif stats.avg_price > rules.maximum_price:
+        elif (
+            rules.maximum_price is not None
+            and stats.avg_price > rules.maximum_price
+        ):
             failures.append("PRICE ABOVE MAXIMUM")
 
         if (

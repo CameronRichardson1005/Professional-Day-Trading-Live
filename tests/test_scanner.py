@@ -54,9 +54,9 @@ def test_scanner_selects_top_three_by_ranking_score():
         stats.symbol
         for stats in selected
     ] == [
-        "CCC",
-        "BBB",
         "DDD",
+        "BBB",
+        "CCC",
     ]
 
 
@@ -89,7 +89,10 @@ def test_scanner_rejects_ineligible_candidates():
     assert [
         stats.symbol
         for stats in selected
-    ] == ["VALID"]
+    ] == [
+        "EXPENSIVE",
+        "VALID",
+    ]
 
 
 def test_current_symbols_are_always_retained():
