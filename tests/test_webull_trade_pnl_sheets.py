@@ -88,63 +88,76 @@ def test_write_webull_trade_pnl():
 
     assert row[0] == "2026-08-11"
     assert row[1] == "MARA"
-    assert row[4] == 20.0
-    assert row[5] == 9.65
-    assert row[6] == 9.80
-    assert row[9] == 3.00
-    assert row[11] == 0.0
-    assert row[12] == "CLOSED"
-    assert row[13] == "WEBULL ORDER HISTORY"
+    assert row == [
+        "2026-08-11",
+        "MARA",
+        20.0,
+        9.65,
+        9.80,
+        3.00,
+        1.5544,
+        3.00,
+    ]
 
     assert client.formatted_titles == [
         "Daily Trade P&L",
     ]
 
 
-def test_write_webull_trade_pnl_marks_remaining_position():
+def test_write_webull_trade_pnl_calculates_running_total():
     client, calls = make_client()
 
-    trade = SimpleNamespace(
+    first = SimpleNamespace(
         symbol="RIVN",
-        buy_time=datetime(
-            2026,
-            8,
-            11,
-            9,
-            50,
-            tzinfo=EASTERN,
-        ),
-        sell_time=datetime(
-            2026,
-            8,
-            11,
-            10,
-            10,
-            tzinfo=EASTERN,
-        ),
         quantity=10.0,
         buy_price=16.04,
         sell_price=16.22,
-        gross_cost=160.40,
-        gross_proceeds=162.20,
         realized_pnl=1.80,
         return_pct=1.1222,
     )
 
-    client.write_webull_trade_pnl(
-        date_str="2026-08-11",
-        trades=[trade],
-        remaining={
-            "RIVN": 40.0,
-        },
+    second = SimpleNamespace(
+        symbol="OPEN",
+        quantity=5.0,
+        buy_price=3.50,
+        sell_price=3.40,
+        realized_pnl=-0.50,
+        return_pct=-2.8571,
     )
 
-    row = calls[0][
-        "replacement_rows"
-    ][0]
+    client.write_webull_trade_pnl(
+        date_str="2026-08-11",
+        trades=[
+            first,
+            second,
+        ],
+        remaining={},
+    )
 
-    assert row[11] == 40.0
-    assert row[12] == "PARTIALLY CLOSED"
+    rows = calls[0]["replacement_rows"]
+
+    assert rows[0] == [
+        "2026-08-11",
+        "RIVN",
+        10.0,
+        16.04,
+        16.22,
+        1.80,
+        1.1222,
+        1.80,
+    ]
+
+    assert rows[1] == [
+        "2026-08-11",
+        "OPEN",
+        5.0,
+        3.50,
+        3.40,
+        -0.50,
+        -2.8571,
+        1.30,
+    ]
+
 
 
 def test_write_webull_pnl_summary():

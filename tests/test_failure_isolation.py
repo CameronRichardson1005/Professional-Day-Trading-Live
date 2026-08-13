@@ -23,7 +23,7 @@ def test_ticker_failure_does_not_stop_remaining_tickers(
         ),
     }
 
-    class FakeAlpaca:
+    class FakeWebullStrategyMarketData:
         def get_opening_15min_bars(
             self,
             symbols_csv,
@@ -62,7 +62,9 @@ def test_ticker_failure_does_not_stop_remaining_tickers(
 
             stock.signal = "INVEST"
 
-    bot.alpaca = FakeAlpaca()
+    bot.webull_strategy_market_data = (
+        FakeWebullStrategyMarketData()
+    )
     bot.strategy = FakeStrategy()
     bot.symbols_csv = "FAIL,PASS"
 

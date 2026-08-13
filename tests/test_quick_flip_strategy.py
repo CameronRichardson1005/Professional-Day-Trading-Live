@@ -47,7 +47,7 @@ def test_opening_15m_candle_creates_box():
     assert round(box.range, 2) == 1.40
 
 
-def test_opening_candle_is_liquidity_at_125_percent_atr():
+def test_opening_candle_is_liquidity_at_25_percent_atr():
     strategy = QuickFlipStrategy()
 
     opening = make_candle(
@@ -72,9 +72,9 @@ def test_opening_candle_below_threshold_is_not_liquidity():
 
     opening = make_candle(
         10.00,
-        11.20,
+        10.20,
         10.00,
-        10.50,
+        10.10,
     )
 
     box = strategy.build_opening_range(
@@ -92,9 +92,9 @@ def test_five_minute_candle_does_not_determine_liquidity():
 
     opening = make_candle(
         10.00,
-        11.10,
+        10.20,
         10.00,
-        10.50,
+        10.10,
     )
 
     box = strategy.build_opening_range(
@@ -426,3 +426,95 @@ def test_quick_flip_signal_contains_no_stop_loss():
         result,
         "stop_loss",
     )
+
+def test_hammer_entry_inside_box_is_rejected():
+    strategy = QuickFlipStrategy()
+
+    opening = make_candle(
+        10.00,
+        11.00,
+        10.00,
+        10.50,
+    )
+
+    box = strategy.build_opening_range(
+        opening
+    )
+
+    previous = make_candle(
+        9.90,
+        9.95,
+        9.70,
+        9.75,
+        minute=45,
+    )
+
+    reversal = make_candle(
+        9.40,
+        10.10,
+        9.38,
+        9.45,
+        minute=50,
+    )
+
+    confirmation = make_candle(
+        9.50,
+        10.20,
+        9.45,
+        10.00,
+        minute=55,
+    )
+
+    result = strategy.evaluate_hammer_setup(
+        symbol="TEST",
+        atr_14=1.0,
+        opening_range=box,
+        previous=previous,
+        reversal=reversal,
+        confirmation=confirmation,
+    )
+
+    assert result.signal == "NO INVEST"
+    assert result.status == "ENTRY_INSIDE_BOX"
+
+
+def test_engulfing_entry_inside_box_is_rejected():
+    strategy = QuickFlipStrategy()
+
+    opening = make_candle(
+        10.00,
+        11.00,
+        10.00,
+        10.50,
+    )
+
+    box = strategy.build_opening_range(
+        opening
+    )
+
+    previous = make_candle(
+        10.05,
+        10.10,
+        9.70,
+        9.80,
+        minute=45,
+    )
+
+    engulfing = make_candle(
+        9.75,
+        10.20,
+        9.60,
+        10.15,
+        minute=50,
+    )
+
+    result = strategy.evaluate_engulfing_setup(
+        symbol="TEST",
+        atr_14=1.0,
+        opening_range=box,
+        previous=previous,
+        engulfing=engulfing,
+    )
+
+    assert result.signal == "NO INVEST"
+    assert result.status == "ENTRY_INSIDE_BOX"

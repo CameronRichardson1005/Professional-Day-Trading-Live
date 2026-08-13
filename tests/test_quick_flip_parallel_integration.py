@@ -11,7 +11,7 @@ from trading_bot.strategy import (
 )
 
 
-class FakeAlpaca:
+class FakeWebullStrategyMarketData:
     def __init__(
         self,
         opening_bars,
@@ -52,6 +52,10 @@ class FakeAlpaca:
             kwargs
         )
         return self.minute_bars
+
+
+class FakeAlpaca:
+    pass
 
 
 def five_minute_group(
@@ -155,17 +159,21 @@ def build_bot(
         "v": 500_000,
     }
 
-    bot.alpaca = FakeAlpaca(
-        opening_bars={
-            "TEST": opening,
-        },
-        atrs={
-            "TEST": atr,
-        },
-        minute_bars={
-            "TEST": minute_bars,
-        },
+    bot.webull_strategy_market_data = (
+        FakeWebullStrategyMarketData(
+            opening_bars={
+                "TEST": opening,
+            },
+            atrs={
+                "TEST": atr,
+            },
+            minute_bars={
+                "TEST": minute_bars,
+            },
+        )
     )
+
+    bot.alpaca = FakeAlpaca()
 
     return bot
 
@@ -290,7 +298,7 @@ def test_parallel_strategies_keep_results_separate():
     }
 
 
-def test_quick_flip_no_liquidity_does_not_change_manipulation():
+def test_shared_opening_gate_keeps_strategies_independent():
     bot = build_bot(
         minute_bars=[],
         atr=2.00,
@@ -316,7 +324,9 @@ def test_quick_flip_no_liquidity_does_not_change_manipulation():
     )
 
     # Opening range = 1.50.
-    # Quick Flip threshold = 2.50.
+    # Shared 25%-ATR threshold = 0.50.
+    # Therefore the opening candle qualifies for
+    # both Manipulation and Quick Flip.
     quick_flip = (
         bot.quick_flip_results[
             "TEST"
@@ -326,11 +336,15 @@ def test_quick_flip_no_liquidity_does_not_change_manipulation():
     assert quick_flip is not None
     assert (
         quick_flip.status
-        == "NO_LIQUIDITY"
+        == "WATCHING"
+    )
+    assert (
+        quick_flip.liquidity_confirmed
+        is True
     )
 
-    # Manipulation has its own 25%-ATR rule and
-    # remains independent.
+    # Manipulation still owns Stock.signal and
+    # remains independent of Quick Flip's later setup.
     assert (
         bot.stocks["TEST"].signal
         == "INVEST"
@@ -347,7 +361,7 @@ def test_missing_quick_flip_atr_is_recorded_safely():
         minute_bars=[]
     )
 
-    bot.alpaca.atrs = {
+    bot.webull_strategy_market_data.atrs = {
         "TEST": None,
     }
 
@@ -382,11 +396,11 @@ def test_quick_flip_uses_0945_to_1100_window():
     )
 
     assert len(
-        bot.alpaca.minute_calls
+        bot.webull_strategy_market_data.minute_calls
     ) == 1
 
     call = (
-        bot.alpaca.minute_calls[0]
+        bot.webull_strategy_market_data.minute_calls[0]
     )
 
     assert (

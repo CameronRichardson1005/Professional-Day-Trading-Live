@@ -265,9 +265,6 @@ def test_confirmation_shows_risk_before_prompt(
     import trading_bot.bot as bot_module
 
     bot = object.__new__(TradingBot)
-    bot.webull_paper_lifecycle_tracker = (
-        SimpleNamespace(store="paper-store")
-    )
 
     seen = {}
 
@@ -314,7 +311,7 @@ def test_confirmation_shows_risk_before_prompt(
     assert records == []
     assert seen == {
         "date_str": "2026-08-07",
-        "store": "paper-store",
+        "store": None,
     }
     assert len(prompts) == 1
 

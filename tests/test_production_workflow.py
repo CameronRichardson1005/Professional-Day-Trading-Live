@@ -21,6 +21,12 @@ def make_bot(events):
         )
     )
 
+    bot.write_webull_daily_pnl = (
+        lambda date_str: events.append(
+            f"pnl:{date_str}"
+        )
+    )
+
     return bot
 
 
@@ -114,6 +120,8 @@ def test_before_open_waits_then_runs_full_workflow(
     assert events == [
         "sleep:1800.0",
         "tracker",
+        "sleep:22785.0",
+        "pnl:2026-07-27",
     ]
 
 
@@ -158,6 +166,8 @@ def test_during_opening_window_tracks_then_waits(
 
     assert events == [
         "tracker",
+        "sleep:22790.0",
+        "pnl:2026-07-27",
     ]
 
 
@@ -170,6 +180,14 @@ def test_after_opening_window_runs_strategy_immediately(
     install_clock(
         monkeypatch,
         [
+            datetime(
+                2026,
+                7,
+                27,
+                9,
+                50,
+                tzinfo=EASTERN,
+            ),
             datetime(
                 2026,
                 7,
@@ -193,9 +211,11 @@ def test_after_opening_window_runs_strategy_immediately(
 
     assert events == [
         "strategy:2026-07-27",
+        "sleep:22500.0",
+        "pnl:2026-07-27",
     ]
 
-def test_production_stops_after_cutoff(
+def test_production_skips_trading_after_cutoff_but_runs_eod_pnl(
         monkeypatch,
         capsys,
 ):
@@ -221,32 +241,68 @@ def test_production_stops_after_cutoff(
         CutoffDateTime,
     )
 
+    events = []
+
+    monkeypatch.setattr(
+        production_bot_module.time_module,
+        "sleep",
+        lambda seconds: events.append(
+            f"sleep:{seconds}"
+        ),
+    )
+
     bot = object.__new__(
         production_bot_module.TradingBot
     )
 
     def unexpected_workflow(*args, **kwargs):
         raise AssertionError(
-            "Production workflow should not start "
-            "after the cutoff."
+            "Trading workflow should not start "
+            "after the 11:00 cutoff."
         )
 
     bot.run_live_tracker = unexpected_workflow
     bot.run_strategy_and_write = unexpected_workflow
 
+    bot.write_webull_daily_pnl = (
+        lambda date_str: events.append(
+            f"pnl:{date_str}"
+        )
+    )
+
     bot.run_production()
 
     output = capsys.readouterr().out
 
+    assert events == [
+        "sleep:18300.0",
+        "pnl:2026-07-27",
+    ]
+
     assert (
-        "The 11:00 New York production cutoff "
+        "The 11:00 New York strategy cutoff "
         "has passed."
         in output
     )
+
     assert (
-        "spreadsheet writes were not started."
+        "Morning trading workflow will not "
+        "be started."
         in output
     )
+
+    assert (
+        "Running read-only end-of-day Webull P&L "
+        "reconciliation..."
+        in output
+    )
+
+    assert (
+        "End-of-day Google Sheets P&L "
+        "update completed."
+        in output
+    )
+
 
 
 def test_tracking_failure_prevents_strategy_write(

@@ -268,7 +268,7 @@ class QuickFlipMonitor:
                 status="NO_LIQUIDITY",
                 detail=(
                     "Opening 15-minute candle did not "
-                    "reach 125% of ATR14."
+                    "reach 25% of ATR14."
                 ),
                 opening_range=opening_range,
                 atr_14=atr_14,

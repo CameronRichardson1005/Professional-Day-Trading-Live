@@ -153,14 +153,6 @@ def test_dashboard_portfolio_reconstructs_if_snapshot_missing(
 ):
     bot = object.__new__(TradingBot)
 
-    store = object()
-
-    bot.webull_paper_lifecycle_tracker = (
-        SimpleNamespace(
-            store=store,
-        )
-    )
-
     seen = {}
 
     def load_portfolio(*, store):
@@ -178,7 +170,7 @@ def test_dashboard_portfolio_reconstructs_if_snapshot_missing(
         source="LIVE_MANIPULATION",
     )
 
-    assert seen["store"] is store
+    assert seen["store"] is None
     assert result["equity"] == 10_007
 
 
@@ -214,11 +206,6 @@ def test_dashboard_portfolio_includes_risk_status(
         make_portfolio()
     )
 
-    store = object()
-    bot.webull_paper_lifecycle_tracker = (
-        SimpleNamespace(store=store)
-    )
-
     seen = {}
 
     def load_risk(*, date_str, store):
@@ -247,7 +234,7 @@ def test_dashboard_portfolio_includes_risk_status(
     )
 
     assert seen["date_str"] == "2026-08-07"
-    assert seen["store"] is store
+    assert seen["store"] is None
 
     assert result["risk"] == {
         "tradingAllowed": False,

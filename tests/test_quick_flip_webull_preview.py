@@ -118,13 +118,18 @@ def test_max_shares_caps_quantity():
 
 
 def test_remaining_account_allowance_is_respected():
-    request = build_quick_flip_preview_request(
-        symbol="SOUN",
-        signal=invest_signal(
-            entry=10.0,
-        ),
-        max_position_value=25.0,
-    )
+    with patch(
+        "trading_bot.quick_flip_webull_preview."
+        "WEBULL_PREVIEW_MAX_SHARES",
+        1000,
+    ):
+        request = build_quick_flip_preview_request(
+            symbol="SOUN",
+            signal=invest_signal(
+                entry=10.0,
+            ),
+            max_position_value=25.0,
+        )
 
     assert request.quantity == 2
     assert (

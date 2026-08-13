@@ -38,7 +38,6 @@ def test_eligibility_failures_match_scanner_rules():
 
     assert scanner.eligibility_failures(stats) == [
         "INSUFFICIENT BARS",
-        "PRICE ABOVE MAXIMUM",
         "VOLUME BELOW MINIMUM",
         "RANGE BELOW MINIMUM",
         "RANGE % BELOW MINIMUM",
@@ -147,10 +146,7 @@ def test_scanner_dashboard_reconciles_ranked_rows():
     assert rows[2][8:] == [
         "NO",
         "NO",
-        (
-            "PRICE ABOVE MAXIMUM; "
-            "RANGE % BELOW MINIMUM"
-        ),
+        "RANGE % BELOW MINIMUM",
     ]
 
 

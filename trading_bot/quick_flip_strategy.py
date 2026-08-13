@@ -8,7 +8,7 @@ QUICK_FLIP_STRATEGY_NAME = "QUICK_FLIP"
 
 # Opening 15-minute candle must be at least
 # 25% larger than the 14-day ATR.
-QUICK_FLIP_LIQUIDITY_MULTIPLIER = 1.25
+QUICK_FLIP_LIQUIDITY_MULTIPLIER = 0.25
 
 
 @dataclass(frozen=True)
@@ -357,6 +357,21 @@ class QuickFlipStrategy:
 
         entry_price = reversal.high
 
+        if entry_price >= opening_range.low:
+            return self._no_invest(
+                symbol=symbol,
+                pattern=pattern,
+                status="ENTRY_INSIDE_BOX",
+                detail=(
+                    "Hammer entry is not below the "
+                    "opening-range low."
+                ),
+                opening_range=opening_range,
+                atr_14=atr_14,
+                threshold=threshold,
+                reversal_time=reversal.timestamp,
+            )
+
         if confirmation.high <= entry_price:
             return self._no_invest(
                 symbol=symbol,
@@ -464,6 +479,21 @@ class QuickFlipStrategy:
             )
 
         entry_price = previous.high
+
+        if entry_price >= opening_range.low:
+            return self._no_invest(
+                symbol=symbol,
+                pattern="BULLISH_ENGULFING",
+                status="ENTRY_INSIDE_BOX",
+                detail=(
+                    "Bullish engulfing entry is not below "
+                    "the opening-range low."
+                ),
+                opening_range=opening_range,
+                atr_14=atr_14,
+                threshold=threshold,
+                reversal_time=engulfing.timestamp,
+            )
 
         return QuickFlipSignal(
             symbol=symbol,

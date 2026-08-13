@@ -156,7 +156,7 @@ def test_opening_bar_controls_liquidity_not_5m_bars():
     result = monitor.evaluate_five_minute_candles(
         symbol="TEST",
         opening_bar=opening_candle(
-            high=11.20,
+            high=10.20,
             low=10.00,
         ),
         atr_14=1.00,
@@ -326,7 +326,7 @@ def test_inverted_hammer_can_invest():
         candle(
             5,
             9.40,
-            10.10,
+            9.95,
             9.38,
             9.45,
         ),
@@ -354,7 +354,7 @@ def test_inverted_hammer_can_invest():
         == "INVERTED_HAMMER"
     )
 
-    assert result.signal.entry_price == 10.10
+    assert result.signal.entry_price == 9.95
 
 
 def test_bullish_engulfing_can_invest():
