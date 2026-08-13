@@ -11,7 +11,7 @@ from trading_bot.strategy import (
 )
 
 
-class FakeAlpaca:
+class FakeWebullStrategyMarketData:
     def __init__(
         self,
         opening_bars,
@@ -52,6 +52,10 @@ class FakeAlpaca:
             kwargs
         )
         return self.minute_bars
+
+
+class FakeAlpaca:
+    pass
 
 
 def five_minute_group(
@@ -155,17 +159,21 @@ def build_bot(
         "v": 500_000,
     }
 
-    bot.alpaca = FakeAlpaca(
-        opening_bars={
-            "TEST": opening,
-        },
-        atrs={
-            "TEST": atr,
-        },
-        minute_bars={
-            "TEST": minute_bars,
-        },
+    bot.webull_strategy_market_data = (
+        FakeWebullStrategyMarketData(
+            opening_bars={
+                "TEST": opening,
+            },
+            atrs={
+                "TEST": atr,
+            },
+            minute_bars={
+                "TEST": minute_bars,
+            },
+        )
     )
+
+    bot.alpaca = FakeAlpaca()
 
     return bot
 
@@ -353,7 +361,7 @@ def test_missing_quick_flip_atr_is_recorded_safely():
         minute_bars=[]
     )
 
-    bot.alpaca.atrs = {
+    bot.webull_strategy_market_data.atrs = {
         "TEST": None,
     }
 
@@ -388,11 +396,11 @@ def test_quick_flip_uses_0945_to_1100_window():
     )
 
     assert len(
-        bot.alpaca.minute_calls
+        bot.webull_strategy_market_data.minute_calls
     ) == 1
 
     call = (
-        bot.alpaca.minute_calls[0]
+        bot.webull_strategy_market_data.minute_calls[0]
     )
 
     assert (

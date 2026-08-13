@@ -9,12 +9,14 @@ from trading_bot.models import Stock
 EASTERN = ZoneInfo("America/New_York")
 
 
-class FakeAlpaca:
-    def __init__(self, five_minute_bars=None):
+class FakeWebullStrategyMarketData:
+    def __init__(
+        self,
+        five_minute_bars=None,
+    ):
         self.opening_calls = 0
         self.atr_calls = 0
         self.five_minute_calls = []
-        self.one_minute_calls = 0
 
         self.five_minute_bars = (
             five_minute_bars
@@ -58,6 +60,11 @@ class FakeAlpaca:
         )
 
         return self.five_minute_bars
+
+
+class FakeAlpaca:
+    def __init__(self):
+        self.one_minute_calls = 0
 
     def get_historical_1min_bars(
         self,
@@ -103,6 +110,10 @@ def build_bot(
         alpaca
         if alpaca is not None
         else FakeAlpaca()
+    )
+
+    bot.webull_strategy_market_data = (
+        FakeWebullStrategyMarketData()
     )
 
     bot.quick_flip_results = {}
@@ -159,8 +170,8 @@ def test_live_monitor_fetches_static_inputs_once():
         data_feed="iex",
     )
 
-    assert bot.alpaca.opening_calls == 1
-    assert bot.alpaca.atr_calls == 1
+    assert bot.webull_strategy_market_data.opening_calls == 1
+    assert bot.webull_strategy_market_data.atr_calls == 1
 
 
 def test_live_monitor_uses_native_5min_bars():
@@ -174,7 +185,7 @@ def test_live_monitor_uses_native_5min_bars():
         data_feed="iex",
     )
 
-    first = bot.alpaca.five_minute_calls[0]
+    first = bot.webull_strategy_market_data.five_minute_calls[0]
 
     assert (
         first["start_iso"]
@@ -186,7 +197,7 @@ def test_live_monitor_uses_native_5min_bars():
         == "2026-08-11T13:50:00Z"
     )
 
-    assert first["feed"] == "iex"
+    assert "feed" not in first
 
     assert bot.alpaca.one_minute_calls == 0
 
@@ -214,27 +225,29 @@ def test_live_monitor_does_not_use_1min_websocket():
 
 
 def test_only_completed_native_5min_candles_are_evaluated():
-    alpaca = FakeAlpaca(
-        five_minute_bars={
-            "TEST": [
-                {
-                    "t": "2026-08-11T13:45:00Z",
-                    "o": 10.00,
-                    "h": 10.30,
-                    "l": 9.90,
-                    "c": 10.20,
-                    "v": 1000,
-                },
-                {
-                    "t": "2026-08-11T13:50:00Z",
-                    "o": 10.20,
-                    "h": 10.40,
-                    "l": 10.10,
-                    "c": 10.30,
-                    "v": 900,
-                },
-            ]
-        }
+    webull_market_data = (
+        FakeWebullStrategyMarketData(
+            five_minute_bars={
+                "TEST": [
+                    {
+                        "t": "2026-08-11T13:45:00Z",
+                        "o": 10.00,
+                        "h": 10.30,
+                        "l": 9.90,
+                        "c": 10.20,
+                        "v": 1000,
+                    },
+                    {
+                        "t": "2026-08-11T13:50:00Z",
+                        "o": 10.20,
+                        "h": 10.40,
+                        "l": 10.10,
+                        "c": 10.30,
+                        "v": 900,
+                    },
+                ]
+            }
+        )
     )
 
     captured = []
@@ -256,8 +269,11 @@ def test_only_completed_native_5min_candles_are_evaluated():
             )
 
     bot = build_bot(
-        alpaca=alpaca,
         monitor=CaptureMonitor(),
+    )
+
+    bot.webull_strategy_market_data = (
+        webull_market_data
     )
 
     clock = Clock(
@@ -332,9 +348,9 @@ def test_live_monitor_stops_at_1100():
         data_feed="iex",
     )
 
-    assert bot.alpaca.opening_calls == 0
-    assert bot.alpaca.atr_calls == 0
-    assert bot.alpaca.five_minute_calls == []
+    assert bot.webull_strategy_market_data.opening_calls == 0
+    assert bot.webull_strategy_market_data.atr_calls == 0
+    assert bot.webull_strategy_market_data.five_minute_calls == []
     assert bot.alpaca.one_minute_calls == 0
 
 

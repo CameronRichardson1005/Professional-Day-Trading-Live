@@ -29,6 +29,9 @@ from .webull_approval_store import (
     WebullApprovalStoreError,
 )
 from .alpaca_client import AlpacaClient
+from .webull_strategy_market_data import (
+    WebullStrategyMarketData,
+)
 from .quick_flip_webull_preview_service import (
     QuickFlipWebullPreviewService,
 )
@@ -91,6 +94,15 @@ class TradingBot:
         self.symbols_csv = ",".join(self.stocks.keys())
 
         self.alpaca = AlpacaClient()
+
+        # Lazily initialized read-only Webull market-data
+        # adapter for live Manipulation and Quick Flip.
+        #
+        # Keeping initialization lazy prevents ordinary
+        # TradingBot construction and unit tests from
+        # authenticating against Webull.
+        self.webull_strategy_market_data = None
+
         # Active live Manipulation strategy.
         self.strategy = ManipulationStrategy()
 
@@ -137,6 +149,83 @@ class TradingBot:
                 "Dashboard approval records will be omitted. "
                 f"Reason: {error}"
             )
+
+    def _get_webull_strategy_market_data(
+            self,
+    ) -> WebullStrategyMarketData:
+        """
+        Lazily construct the read-only Webull market-data
+        adapter used by live Manipulation and Quick Flip.
+
+        This method exposes no order functionality.
+        """
+        existing = getattr(
+            self,
+            "webull_strategy_market_data",
+            None,
+        )
+
+        if existing is not None:
+            return existing
+
+        import logging
+
+        from webull.core.client import ApiClient
+        from webull.data.data_client import DataClient
+
+        from .config import (
+            WEBULL_APP_KEY,
+            WEBULL_APP_SECRET,
+        )
+
+        if not WEBULL_APP_KEY:
+            raise RuntimeError(
+                "WEBULL_APP_KEY is not configured."
+            )
+
+        if not WEBULL_APP_SECRET:
+            raise RuntimeError(
+                "WEBULL_APP_SECRET is not configured."
+            )
+
+        # Suppress Webull SDK token metadata logging.
+        logging.disable(
+            logging.CRITICAL
+        )
+
+        try:
+            api_client = ApiClient(
+                WEBULL_APP_KEY,
+                WEBULL_APP_SECRET,
+                "us",
+            )
+
+            api_client.add_endpoint(
+                "us",
+                "api.webull.com",
+            )
+
+            data_client = DataClient(
+                api_client
+            )
+
+        finally:
+            logging.disable(
+                logging.NOTSET
+            )
+
+        self.webull_strategy_market_data = (
+            WebullStrategyMarketData(
+                market_data=(
+                    data_client.market_data
+                ),
+            )
+        )
+
+        return (
+            self.webull_strategy_market_data
+        )
+
 
     def refresh_symbols_for_date(
             self,
@@ -1357,7 +1446,7 @@ class TradingBot:
         utc = ZoneInfo("UTC")
 
         # Native-timeframe live mode:
-        # Quick Flip uses Alpaca native 5Min REST bars.
+        # Quick Flip uses Webull native 5Min REST bars.
         # Do not mix the existing 1Min WebSocket stream
         # with native 5Min strategy candles.
         stream_factory = None
@@ -1450,19 +1539,21 @@ class TradingBot:
             "and ATR14 values..."
         )
 
+        market_data = (
+            self._get_webull_strategy_market_data()
+        )
+
         opening_bars = (
-            self.alpaca.get_opening_15min_bars(
+            market_data.get_opening_15min_bars(
                 symbols_csv=self.symbols_csv,
                 date_str=date_str,
-                feed=data_feed,
             )
         )
 
         atrs = (
-            self.alpaca.get_previous_day_ranges_all(
+            market_data.get_previous_day_ranges_all(
                 symbols_csv=self.symbols_csv,
                 date_str=date_str,
-                feed=data_feed,
             )
         )
 
@@ -1515,7 +1606,7 @@ class TradingBot:
                         collect_quick_flip_stream
                     ),
                     name=(
-                        "quick-flip-alpaca-stream"
+                        "quick-flip-market-data-stream"
                     ),
                     daemon=True,
                 )
@@ -1861,7 +1952,7 @@ class TradingBot:
                             )
                         )
 
-                        # Alpaca timestamps native 5Min bars
+                        # Webull timestamps native 5Min bars
                         # at the start of their interval.
                         # Evaluate only after all five minutes
                         # have completed.
@@ -1962,7 +2053,7 @@ class TradingBot:
 
                 try:
                     fetched = (
-                        self.alpaca
+                        market_data
                         .get_historical_5min_bars(
                             symbols_csv=self.symbols_csv,
                             start_iso=start_utc.strftime(
@@ -1971,7 +2062,6 @@ class TradingBot:
                             end_iso=end_utc.strftime(
                                 "%Y-%m-%dT%H:%M:%SZ"
                             ),
-                            feed=data_feed,
                         )
                     )
 
@@ -2142,7 +2232,7 @@ class TradingBot:
         if fetch_start < monitor_cutoff:
             try:
                 final_fetch = (
-                    self.alpaca
+                    market_data
                     .get_historical_5min_bars(
                         symbols_csv=self.symbols_csv,
                         start_iso=(
@@ -2159,7 +2249,6 @@ class TradingBot:
                                 "%Y-%m-%dT%H:%M:%SZ"
                             )
                         ),
-                        feed=data_feed,
                     )
                 )
 
@@ -2753,16 +2842,24 @@ class TradingBot:
     ) -> None:
         """
         Calculate the standalone live Manipulation strategy from
-        Alpaca's native 15-minute opening candle and ATR history.
+        Webull's 15-minute opening candle and daily ATR history.
         """
-        opening_bars = self.alpaca.get_opening_15min_bars(
-            symbols_csv=self.symbols_csv,
-            date_str=date_str,
+        market_data = (
+            self._get_webull_strategy_market_data()
         )
 
-        atrs = self.alpaca.get_previous_day_ranges_all(
-            symbols_csv=self.symbols_csv,
-            date_str=date_str,
+        opening_bars = (
+            market_data.get_opening_15min_bars(
+                symbols_csv=self.symbols_csv,
+                date_str=date_str,
+            )
+        )
+
+        atrs = (
+            market_data.get_previous_day_ranges_all(
+                symbols_csv=self.symbols_csv,
+                date_str=date_str,
+            )
         )
 
         for symbol, stock in self.stocks.items():
@@ -2806,7 +2903,7 @@ class TradingBot:
             bar: dict,
     ) -> QuickFlipCandle:
         """
-        Convert one Alpaca OHLC bar into the immutable candle
+        Convert one normalized OHLC bar into the immutable candle
         representation used by Quick Flip.
 
         This conversion performs no strategy evaluation.
@@ -2895,19 +2992,21 @@ class TradingBot:
         self.quick_flip_results = {}
         self.quick_flip_status = {}
 
+        market_data = (
+            self._get_webull_strategy_market_data()
+        )
+
         opening_bars = (
-            self.alpaca.get_opening_15min_bars(
+            market_data.get_opening_15min_bars(
                 symbols_csv=self.symbols_csv,
                 date_str=date_str,
-                feed=data_feed,
             )
         )
 
         atrs = (
-            self.alpaca.get_previous_day_ranges_all(
+            market_data.get_previous_day_ranges_all(
                 symbols_csv=self.symbols_csv,
                 date_str=date_str,
-                feed=data_feed,
             )
         )
 
@@ -2927,8 +3026,12 @@ class TradingBot:
                 .astimezone(utc)
             )
 
+            market_data = (
+                self._get_webull_strategy_market_data()
+            )
+
             bars_by_symbol = (
-                self.alpaca
+                market_data
                 .get_historical_1min_bars(
                     symbols_csv=self.symbols_csv,
                     start_iso=start_utc.strftime(
@@ -2937,7 +3040,6 @@ class TradingBot:
                     end_iso=end_utc.strftime(
                         "%Y-%m-%dT%H:%M:%SZ"
                     ),
-                    feed=data_feed,
                 )
             )
 
