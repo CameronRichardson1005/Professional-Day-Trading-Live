@@ -566,6 +566,11 @@ class SheetsClient:
                             "wrapStrategy": "CLIP",
                             "textFormat": {
                                 "fontSize": 10,
+                                "foregroundColor": {
+                                    "red": 0.0,
+                                    "green": 0.0,
+                                    "blue": 0.0,
+                                },
                             },
                             "borders": {
                                 "bottom": {
@@ -635,6 +640,10 @@ class SheetsClient:
         currency_two_decimals = {
             "Estimated Cost",
             "Estimated Fee",
+            "Buy Price",
+            "Sell Price",
+            "Profit/Loss",
+            "Total P&L",
         }
 
         integer_columns = {
@@ -655,6 +664,7 @@ class SheetsClient:
             "Average Range %",
             "Reliability",
             "Completeness",
+            "Return %",
         }
 
         date_columns = {
@@ -755,6 +765,244 @@ class SheetsClient:
                     }
                 }
             )
+
+        # Give every worksheet a complete table grid so each
+        # populated cell reads as part of one professional table.
+        requests.append(
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": row_count,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": column_count,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "borders": {
+                                "top": {
+                                    "style": "SOLID",
+                                    "color": border_colour,
+                                },
+                                "bottom": {
+                                    "style": "SOLID",
+                                    "color": border_colour,
+                                },
+                                "left": {
+                                    "style": "SOLID",
+                                    "color": border_colour,
+                                },
+                                "right": {
+                                    "style": "SOLID",
+                                    "color": border_colour,
+                                },
+                            }
+                        }
+                    },
+                    "fields": "userEnteredFormat.borders",
+                }
+            }
+        )
+
+        if worksheet.title == "Daily Trade P&L":
+            pnl_column_widths = [
+                110,  # Date
+                90,   # Symbol
+                85,   # Quantity
+                105,  # Buy Price
+                105,  # Sell Price
+                115,  # Profit/Loss
+                95,   # Return %
+                120,  # Total P&L
+            ]
+
+            for column_index, pixel_width in enumerate(
+                pnl_column_widths
+            ):
+                requests.append(
+                    {
+                        "updateDimensionProperties": {
+                            "range": {
+                                "sheetId": sheet_id,
+                                "dimension": "COLUMNS",
+                                "startIndex": column_index,
+                                "endIndex": column_index + 1,
+                            },
+                            "properties": {
+                                "pixelSize": pixel_width,
+                            },
+                            "fields": "pixelSize",
+                        }
+                    }
+                )
+
+            # Give every table cell a complete border so the
+            # ledger reads as one coherent professional table.
+            requests.append(
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 0,
+                            "endRowIndex": row_count,
+                            "startColumnIndex": 0,
+                            "endColumnIndex": 8,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "borders": {
+                                    "top": {
+                                        "style": "SOLID",
+                                        "color": border_colour,
+                                    },
+                                    "bottom": {
+                                        "style": "SOLID",
+                                        "color": border_colour,
+                                    },
+                                    "left": {
+                                        "style": "SOLID",
+                                        "color": border_colour,
+                                    },
+                                    "right": {
+                                        "style": "SOLID",
+                                        "color": border_colour,
+                                    },
+                                }
+                            }
+                        },
+                        "fields": "userEnteredFormat.borders",
+                    }
+                }
+            )
+
+            # Symbol column: bold for quick scanning.
+            requests.append(
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": row_count,
+                            "startColumnIndex": 1,
+                            "endColumnIndex": 2,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "textFormat": {
+                                    "bold": True,
+                                }
+                            }
+                        },
+                        "fields": (
+                            "userEnteredFormat.textFormat.bold"
+                        ),
+                    }
+                }
+            )
+
+            # Total P&L column gets stronger visual emphasis.
+            requests.append(
+                {
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "startRowIndex": 1,
+                            "endRowIndex": row_count,
+                            "startColumnIndex": 7,
+                            "endColumnIndex": 8,
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "textFormat": {
+                                    "bold": True,
+                                }
+                            }
+                        },
+                        "fields": (
+                            "userEnteredFormat.textFormat.bold"
+                        ),
+                    }
+                }
+            )
+
+            positive_background = {
+                "red": 0.86,
+                "green": 0.95,
+                "blue": 0.88,
+            }
+
+            negative_background = {
+                "red": 0.98,
+                "green": 0.86,
+                "blue": 0.86,
+            }
+
+            # Profit/Loss is column F; Total P&L is column H.
+            for row_index, row in enumerate(
+                values[1:],
+                start=1,
+            ):
+                for pnl_column_index in (5, 7):
+                    if pnl_column_index >= len(row):
+                        continue
+
+                    raw_value = str(
+                        row[pnl_column_index]
+                    ).replace(
+                        "$",
+                        "",
+                    ).replace(
+                        ",",
+                        "",
+                    ).strip()
+
+                    try:
+                        pnl_value = float(raw_value)
+                    except ValueError:
+                        continue
+
+                    if pnl_value > 0:
+                        background = positive_background
+                    elif pnl_value < 0:
+                        background = negative_background
+                    else:
+                        continue
+
+                    requests.append(
+                        {
+                            "repeatCell": {
+                                "range": {
+                                    "sheetId": sheet_id,
+                                    "startRowIndex": row_index,
+                                    "endRowIndex": row_index + 1,
+                                    "startColumnIndex": pnl_column_index,
+                                    "endColumnIndex": pnl_column_index + 1,
+                                },
+                                "cell": {
+                                    "userEnteredFormat": {
+                                        "backgroundColor": background,
+                                        "textFormat": {
+                                            "bold": True,
+                                            "foregroundColor": {
+                                                "red": 0.0,
+                                                "green": 0.0,
+                                                "blue": 0.0,
+                                            },
+                                        },
+                                    }
+                                },
+                                "fields": (
+                                    "userEnteredFormat."
+                                    "backgroundColor,"
+                                    "userEnteredFormat."
+                                    "textFormat.bold,"
+                                    "userEnteredFormat."
+                                    "textFormat.foregroundColor"
+                                ),
+                            }
+                        }
+                    )
 
         for row_index, row in enumerate(values[1:], start=1):
             for column_index, value in enumerate(row):
@@ -2534,16 +2782,26 @@ class SheetsClient:
             sheet_name: str = "Daily Trade P&L",
     ) -> None:
         """
-        Store realized Webull trade results for one trading date.
+        Store a compact realized Webull trade ledger.
 
-        Data is sourced from read-only Webull order history.
+        The final column is cumulative realized P&L across all
+        rows currently stored on the sheet.
+
+        Data comes only from read-only Webull order history.
         This method cannot submit, replace, or cancel orders.
         """
-        from zoneinfo import ZoneInfo
-
-        eastern = ZoneInfo("America/New_York")
-
         columns = [
+            "Date",
+            "Symbol",
+            "Quantity",
+            "Buy Price",
+            "Sell Price",
+            "Profit/Loss",
+            "Return %",
+            "Total P&L",
+        ]
+
+        legacy_columns = [
             "Date",
             "Symbol",
             "Buy Time ET",
@@ -2566,43 +2824,138 @@ class SheetsClient:
             cols=len(columns),
         )
 
+        existing_values = (
+            worksheet.get_all_values()
+            if hasattr(
+                worksheet,
+                "get_all_values",
+            )
+            else []
+        )
+
+        # Recover from a partially migrated sheet where A:H already
+        # contains the compact layout but stale legacy values remain
+        # in I:N.
+        if (
+            existing_values
+            and existing_values[0][:len(columns)] == columns
+            and len(existing_values[0]) > len(columns)
+        ):
+            worksheet.batch_clear([
+                f"I1:N{max(len(existing_values), 1)}"
+            ])
+
+            existing_values = (
+                worksheet.get_all_values()
+            )
+
+        # Migrate the existing 14-column P&L sheet in place.
+        if (
+            existing_values
+            and existing_values[0] == legacy_columns
+        ):
+            migrated_rows = []
+
+            for row in existing_values[1:]:
+                normalised = self._normalise_row(
+                    row=row,
+                    column_count=len(legacy_columns),
+                )
+
+                if not normalised[0]:
+                    continue
+
+                migrated_rows.append([
+                    normalised[0],
+                    normalised[1],
+                    normalised[4],
+                    normalised[5],
+                    normalised[6],
+                    normalised[9],
+                    normalised[10],
+                    "",
+                ])
+
+            running_total = 0.0
+
+            for row in migrated_rows:
+                try:
+                    running_total += float(row[5])
+                except (TypeError, ValueError):
+                    pass
+
+                row[7] = round(
+                    running_total,
+                    2,
+                )
+
+            self._rewrite_table(
+                worksheet=worksheet,
+                columns=columns,
+                rows=migrated_rows,
+                last_column="H",
+            )
+
+            # The worksheet may previously have used columns I:N.
+            # Clear them so stale legacy headers/data cannot survive
+            # the compact migration.
+            worksheet.batch_clear([
+                f"I1:N{max(len(existing_values), 1)}"
+            ])
+
+            existing_values = (
+                worksheet.get_all_values()
+            )
+
+        elif (
+            existing_values
+            and existing_values[0] != columns
+        ):
+            self._validate_header(
+                existing_values=existing_values,
+                expected_columns=columns,
+                sheet_name=sheet_name,
+            )
+
+        # Determine cumulative P&L before this date.
+        preserved_pnl = 0.0
+
+        for row in existing_values[1:]:
+            normalised = self._normalise_row(
+                row=row,
+                column_count=len(columns),
+            )
+
+            if normalised[0] == date_str:
+                continue
+
+            try:
+                preserved_pnl += float(
+                    normalised[5]
+                )
+            except (TypeError, ValueError):
+                pass
+
         rows = []
+        running_total = preserved_pnl
 
         for trade in trades:
-            open_quantity = float(
-                remaining.get(
-                    trade.symbol,
-                    0,
-                )
+            running_total += float(
+                trade.realized_pnl
             )
 
             rows.append([
                 date_str,
                 trade.symbol,
-                trade.buy_time.astimezone(
-                    eastern
-                ).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                trade.sell_time.astimezone(
-                    eastern
-                ).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
                 trade.quantity,
                 trade.buy_price,
                 trade.sell_price,
-                trade.gross_cost,
-                trade.gross_proceeds,
                 trade.realized_pnl,
                 trade.return_pct,
-                open_quantity,
-                (
-                    "PARTIALLY CLOSED"
-                    if open_quantity > 0
-                    else "CLOSED"
+                round(
+                    running_total,
+                    2,
                 ),
-                "WEBULL ORDER HISTORY",
             ])
 
         self._replace_date_rows(
@@ -2610,9 +2963,57 @@ class SheetsClient:
             columns=columns,
             date_str=date_str,
             replacement_rows=rows,
-            last_column="N",
+            last_column="H",
             sheet_name=sheet_name,
         )
+
+        # Recalculate every cumulative total after reconciliation.
+        # This also keeps totals correct if an older date is rerun.
+        if hasattr(
+            worksheet,
+            "get_all_values",
+        ):
+            refreshed = worksheet.get_all_values()
+
+            if refreshed:
+                reconciled_rows = []
+
+                for row in refreshed[1:]:
+                    normalised = self._normalise_row(
+                        row=row,
+                        column_count=len(columns),
+                    )
+
+                    if normalised[0]:
+                        reconciled_rows.append(
+                            normalised
+                        )
+
+                reconciled_rows.sort(
+                    key=lambda row: row[0]
+                )
+
+                running_total = 0.0
+
+                for row in reconciled_rows:
+                    try:
+                        running_total += float(
+                            row[5]
+                        )
+                    except (TypeError, ValueError):
+                        pass
+
+                    row[7] = round(
+                        running_total,
+                        2,
+                    )
+
+                self._rewrite_table(
+                    worksheet=worksheet,
+                    columns=columns,
+                    rows=reconciled_rows,
+                    last_column="H",
+                )
 
         self.format_worksheet(worksheet)
 
