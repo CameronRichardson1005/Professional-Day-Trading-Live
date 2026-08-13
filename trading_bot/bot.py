@@ -4052,6 +4052,67 @@ class TradingBot:
                     f"MAE: {record.mae_pct:+.4f}%"
                 )
 
+    def _run_production_eod_pnl(
+            self,
+            date_str: str,
+            eastern,
+    ) -> None:
+        """
+        Wait until 16:05 New York time and reconcile the day's
+        realized Webull P&L into Google Sheets.
+
+        READ ONLY with respect to Webull broker activity.
+        """
+        now = datetime.now(eastern)
+
+        eod_pnl_time = datetime.combine(
+            now.date(),
+            time(hour=16, minute=5),
+            tzinfo=eastern,
+        )
+
+        if now < eod_pnl_time:
+            wait_seconds = (
+                eod_pnl_time - now
+            ).total_seconds()
+
+            print()
+            print(
+                "Morning strategy workflow complete."
+            )
+            print(
+                "Waiting until 16:05 New York time "
+                "for the end-of-day P&L update..."
+            )
+
+            time_module.sleep(wait_seconds)
+
+        print()
+        print(
+            "Running read-only end-of-day Webull P&L "
+            "reconciliation..."
+        )
+
+        try:
+            self.write_webull_daily_pnl(
+                date_str=date_str,
+            )
+        except Exception as error:
+            print(
+                "WARNING: End-of-day Webull P&L "
+                "update failed."
+            )
+            print(
+                f"End-of-day P&L error: {error}"
+            )
+            return
+
+        print(
+            "End-of-day Google Sheets P&L "
+            "update completed."
+        )
+
+
     def run_production(self) -> None:
         eastern = ZoneInfo("America/New_York")
         now = datetime.now(eastern)
@@ -4091,18 +4152,26 @@ class TradingBot:
         if now >= production_cutoff:
             print()
             print(
-                "The 11:00 New York production cutoff "
+                "The 11:00 New York strategy cutoff "
                 "has passed."
             )
             print(
-                "Tracking, strategy calculation, and "
-                "spreadsheet writes were not started."
+                "Morning trading workflow will not "
+                "be started."
             )
+
+            self._run_production_eod_pnl(
+                date_str=date_str,
+                eastern=eastern,
+            )
+
+            print()
+            print("Production workflow completed.")
             return
 
         if now < market_open:
             wait_seconds = (
-                    market_open - now
+                market_open - now
             ).total_seconds()
 
             print(
@@ -4114,7 +4183,9 @@ class TradingBot:
 
         elif now >= strategy_time:
             print()
-            print("The opening tracking window has ended.")
+            print(
+                "The opening tracking window has ended."
+            )
             print("Skipping the opening tracker.")
 
             print(
@@ -4126,16 +4197,28 @@ class TradingBot:
                 date_str=date_str
             )
 
+            self._run_production_eod_pnl(
+                date_str=date_str,
+                eastern=eastern,
+            )
+
             print()
             print("Production workflow completed.")
             return
 
         else:
             print()
-            print("The opening window has already started.")
+            print(
+                "The opening window has already started."
+            )
             print("Starting the tracker now...")
 
         self.run_live_tracker()
+
+        self._run_production_eod_pnl(
+            date_str=date_str,
+            eastern=eastern,
+        )
 
         print()
         print("Production workflow completed.")
