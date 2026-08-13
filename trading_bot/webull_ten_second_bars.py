@@ -53,11 +53,55 @@ def _read_value(
             default,
         )
 
-    return getattr(
+    value = getattr(
         obj,
         name,
-        default,
+        None,
     )
+
+    if value not in (
+        None,
+        "",
+    ):
+        return value
+
+    getter = getattr(
+        obj,
+        f"get_{name}",
+        None,
+    )
+
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:
+            value = None
+
+        if value not in (
+            None,
+            "",
+        ):
+            return value
+
+    # Webull TickResult currently exposes price/volume/side
+    # directly but serializes symbol/timestamp/session only
+    # in its protobuf-style string representation.
+    rendered = str(obj)
+
+    if rendered:
+        marker = f"{name}:"
+
+        for part in rendered.split(","):
+            item = part.strip()
+
+            if not item.startswith(marker):
+                continue
+
+            return item[
+                len(marker):
+            ].strip()
+
+    return default
 
 
 def tick_from_webull_message(

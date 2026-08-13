@@ -258,3 +258,41 @@ def test_invalid_tick_rejected():
             "price": 0,
             "volume": 100,
         })
+
+
+class FakeWebullTickResult:
+    """
+    Mimics the important behavior of Webull SDK TickResult:
+
+    - price, volume, side are direct attributes
+    - symbol/timestamp/session appear in string output
+    """
+
+    price = 225.84
+    volume = "259"
+    side = "N"
+
+    def __str__(self):
+        return (
+            "symbol:NVDA,"
+            "instrument_id:913257561,"
+            "timestamp:1786647827165,"
+            "trading_session:RTH, "
+            "price:225.84, "
+            "volume:259, "
+            "time:15:03:47, "
+            "side:N"
+        )
+
+
+def test_parse_realistic_webull_tick_result_object():
+    parsed = tick_from_webull_message(
+        FakeWebullTickResult()
+    )
+
+    assert parsed.symbol == "NVDA"
+    assert parsed.timestamp_ms == 1786647827165
+    assert parsed.price == 225.84
+    assert parsed.volume == 259
+    assert parsed.trading_session == "RTH"
+    assert parsed.side == "N"

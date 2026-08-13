@@ -49,3 +49,6 @@ runtime/webull_approvals.json.tmp
 
 # Webull OpenAPI runtime log
 webull_data_streaming_sdk.log
+
+# Webull forward-test market data
+data/webull_10s/
