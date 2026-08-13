@@ -173,12 +173,13 @@ WEBULL_PREVIEW_RISK_DOLLARS = float(
     )
 )
 
-WEBULL_PREVIEW_MAX_SHARES = int(
-    os.getenv(
-        "WEBULL_PREVIEW_MAX_SHARES",
-        "1000",
-    )
-)
+# Preview comparison mode:
+# every qualifying setup is shown as exactly one share so one
+# candidate cannot consume the preview exposure allowance before
+# the user compares the available setups.
+#
+# This is preview sizing only and does not enable broker orders.
+WEBULL_PREVIEW_MAX_SHARES = 1
 
 WEBULL_PREVIEW_MAX_POSITION_VALUE = float(
     os.getenv(

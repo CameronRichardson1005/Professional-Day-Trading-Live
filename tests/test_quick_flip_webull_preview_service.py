@@ -210,11 +210,18 @@ def test_quick_flip_uses_remaining_exposure(
         ),
     )
 
-    with patch(
-        "trading_bot."
-        "quick_flip_webull_preview_service."
-        "WEBULL_PREVIEW_ENABLED",
-        True,
+    with (
+        patch(
+            "trading_bot."
+            "quick_flip_webull_preview_service."
+            "WEBULL_PREVIEW_ENABLED",
+            True,
+        ),
+        patch(
+            "trading_bot.quick_flip_webull_preview."
+            "WEBULL_PREVIEW_MAX_SHARES",
+            1000,
+        ),
     ):
         preview = service.prepare_previews({
             "OPEN": Result(

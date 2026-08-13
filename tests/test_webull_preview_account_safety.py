@@ -139,6 +139,11 @@ def test_preview_uses_remaining_operational_allowance():
             "WEBULL_PREVIEW_MAX_POSITION_VALUE",
             500.0,
         ),
+        patch(
+            "trading_bot.webull_preview_client."
+            "WEBULL_PREVIEW_MAX_SHARES",
+            1000,
+        ),
     ):
         results = service.prepare_previews({
             stock.symbol: stock
@@ -191,6 +196,11 @@ def test_multiple_previews_reserve_shared_cap():
             "trading_bot.webull_preview_client."
             "WEBULL_PREVIEW_MAX_POSITION_VALUE",
             500.0,
+        ),
+        patch(
+            "trading_bot.webull_preview_client."
+            "WEBULL_PREVIEW_MAX_SHARES",
+            1000,
         ),
     ):
         results = service.prepare_previews({
