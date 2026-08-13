@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.cameron.professional-day-trading</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/cameronrichardson/PycharmProjects/Professional-Day-Trading-Live/automation/run_production.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/cameronrichardson/PycharmProjects/Professional-Day-Trading-Live</string>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Weekday</key>
+            <integer>2</integer>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>20</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>3</integer>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>20</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>4</integer>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>20</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>5</integer>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>20</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>6</integer>
+            <key>Hour</key>
+            <integer>9</integer>
+            <key>Minute</key>
+            <integer>20</integer>
+        </dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>/Users/cameronrichardson/PycharmProjects/Professional-Day-Trading-Live/runtime/automation/production.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/cameronrichardson/PycharmProjects/Professional-Day-Trading-Live/runtime/automation/production.err.log</string>
+</dict>
+</plist>
