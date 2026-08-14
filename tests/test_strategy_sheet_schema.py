@@ -8,14 +8,26 @@ def make_client():
     client = object.__new__(SheetsClient)
     captured = {}
 
+    worksheet = SimpleNamespace(
+        title="Invest",
+    )
+
     client.get_or_create_worksheet = (
-        lambda **kwargs: SimpleNamespace()
+        lambda **kwargs: worksheet
     )
 
     def replace_date_rows(**kwargs):
         captured.update(kwargs)
 
     client._replace_date_rows = replace_date_rows
+
+    client.format_worksheet = (
+        lambda target: captured.__setitem__(
+            "formatted_worksheet",
+            target,
+        )
+    )
+
     return client, captured
 
 
@@ -53,6 +65,11 @@ def test_manipulation_strategy_sheet_fields():
     columns = captured["columns"]
     row = captured["replacement_rows"][0]
     values = dict(zip(columns, row))
+
+    assert (
+        captured["formatted_worksheet"].title
+        == "Invest"
+    )
 
     assert values["Strategy"] == "MANIPULATION_OPENING_15M"
     assert values["Signal"] == "INVEST"

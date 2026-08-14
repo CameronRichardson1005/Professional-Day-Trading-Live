@@ -499,6 +499,8 @@ class SheetsClient:
             row_count: int,
             currency_four_decimals: set,
             currency_two_decimals: set,
+            number_two_decimals: set,
+            number_three_decimals: set,
             integer_columns: set,
             percentage_columns: set,
             date_columns: set,
@@ -523,6 +525,16 @@ class SheetsClient:
                 number_format = {
                     "type": "CURRENCY",
                     "pattern": "$#,##0.00",
+                }
+            elif column in number_two_decimals:
+                number_format = {
+                    "type": "NUMBER",
+                    "pattern": "0.00",
+                }
+            elif column in number_three_decimals:
+                number_format = {
+                    "type": "NUMBER",
+                    "pattern": "0.000",
                 }
             elif column in integer_columns:
                 number_format = {
@@ -789,7 +801,15 @@ class SheetsClient:
             "Average Range",
             "Prev Day Range (ATR)",
             "ATR x 0.25",
+            "ATR Threshold",
             "Candle Range",
+            "Entry",
+            "Target",
+            "Retracement Price",
+            "Opening Open",
+            "Opening High",
+            "Opening Low",
+            "Opening Close",
             "Limit Buy",
             "Limit Sell",
             "Stop Loss",
@@ -800,12 +820,23 @@ class SheetsClient:
         }
 
         currency_two_decimals = {
+            "Estimated Position Value",
+            "Maximum Position Value",
             "Estimated Cost",
             "Estimated Fee",
             "Buy Price",
             "Sell Price",
             "Profit/Loss",
             "Total P&L",
+        }
+
+        number_two_decimals = {
+            "Reward / Risk",
+        }
+
+        number_three_decimals = {
+            "Impulse ATR Multiple",
+            "Pullback Volume Ratio",
         }
 
         integer_columns = {
@@ -853,6 +884,8 @@ class SheetsClient:
             row_count=row_count,
             currency_four_decimals=currency_four_decimals,
             currency_two_decimals=currency_two_decimals,
+            number_two_decimals=number_two_decimals,
+            number_three_decimals=number_three_decimals,
             integer_columns=integer_columns,
             percentage_columns=percentage_columns,
             date_columns=date_columns,
@@ -2180,6 +2213,8 @@ class SheetsClient:
             sheet_name=sheet_name,
         )
 
+        self.format_worksheet(worksheet)
+
         print(
             f"{len(strategy_rows)} strategy row(s) reconciled "
             f"in the {sheet_name} sheet."
@@ -3127,6 +3162,8 @@ class SheetsClient:
             last_column="M",
             sheet_name=sheet_name,
         )
+
+        self.format_worksheet(worksheet)
 
         if order_rows:
             print(

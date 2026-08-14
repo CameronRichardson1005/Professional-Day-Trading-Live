@@ -170,6 +170,12 @@ def test_orders_sheet_uses_original_trading_stop_loss():
     sheets._replace_date_rows = (
         lambda **kwargs: captured.update(kwargs)
     )
+    sheets.format_worksheet = (
+        lambda target: captured.__setitem__(
+            "formatted_worksheet",
+            target,
+        )
+    )
 
     sheets.write_orders(
         date_str="2026-07-27",
@@ -178,6 +184,8 @@ def test_orders_sheet_uses_original_trading_stop_loss():
             "SOUN": skipped,
         },
     )
+
+    assert captured["formatted_worksheet"] is worksheet
 
     assert captured["columns"] == [
         "Date",
