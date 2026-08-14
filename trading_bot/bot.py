@@ -995,8 +995,13 @@ class TradingBot:
             self.manipulation_selling_pressure_shadows = {}
             return {}
 
+        market_data = (
+            self._get_webull_strategy_market_data()
+        )
+
         historical = (
-            self.alpaca.get_historical_opening_15min_bars(
+            market_data
+            .get_historical_opening_15min_bars(
                 symbols_csv=",".join(symbols),
                 start_date=history_start,
                 end_date=date_str,
@@ -1800,7 +1805,7 @@ class TradingBot:
             "Opening window complete."
         )
         print(
-            "Manipulation will use Alpaca "
+            "Manipulation will use Webull "
             "native 15Min bars."
         )
 

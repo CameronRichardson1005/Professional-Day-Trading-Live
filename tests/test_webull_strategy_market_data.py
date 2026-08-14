@@ -292,3 +292,81 @@ def test_multiple_symbols_are_supported():
     assert len(
         market.calls
     ) == 2
+
+
+
+def test_historical_opening_15min_bars_filters_date_and_clock(
+        monkeypatch,
+):
+    adapter = WebullStrategyMarketData(
+        market_data=None
+    )
+
+    bars = [
+        {
+            "t": "2026-08-10T13:30:00Z",
+            "o": 10.0,
+            "h": 10.5,
+            "l": 9.9,
+            "c": 10.1,
+            "v": 1000,
+        },
+        # Same date, wrong 15-minute candle.
+        {
+            "t": "2026-08-10T13:45:00Z",
+            "o": 10.1,
+            "h": 10.6,
+            "l": 10.0,
+            "c": 10.4,
+            "v": 2000,
+        },
+        {
+            "t": "2026-08-11T13:30:00Z",
+            "o": 10.2,
+            "h": 10.7,
+            "l": 10.0,
+            "c": 10.3,
+            "v": 3000,
+        },
+        # Outside requested range.
+        {
+            "t": "2026-08-12T13:30:00Z",
+            "o": 10.3,
+            "h": 10.8,
+            "l": 10.1,
+            "c": 10.4,
+            "v": 4000,
+        },
+    ]
+
+    calls = []
+
+    def fake_history(**kwargs):
+        calls.append(kwargs)
+        return bars
+
+    monkeypatch.setattr(
+        adapter,
+        "_history",
+        fake_history,
+    )
+
+    result = (
+        adapter
+        .get_historical_opening_15min_bars(
+            symbols_csv="TEST",
+            start_date="2026-08-10",
+            end_date="2026-08-11",
+        )
+    )
+
+    assert [
+        bar["t"]
+        for bar in result["TEST"]
+    ] == [
+        "2026-08-10T13:30:00Z",
+        "2026-08-11T13:30:00Z",
+    ]
+
+    assert len(calls) == 1
+    assert calls[0]["symbol"] == "TEST"

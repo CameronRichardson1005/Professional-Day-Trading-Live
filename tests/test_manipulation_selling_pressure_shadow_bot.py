@@ -2,7 +2,7 @@ from trading_bot.bot import TradingBot
 from trading_bot.models import Stock
 
 
-class FakeAlpaca:
+class FakeWebull:
     def __init__(self):
         self.calls = []
 
@@ -100,7 +100,7 @@ def test_shadow_builder_does_not_modify_live_manipulation_trade():
         "TEST": stock,
     }
 
-    bot.alpaca = FakeAlpaca()
+    bot.webull_strategy_market_data = FakeWebull()
     bot.manipulation_selling_pressure_shadows = {}
 
     original_live_values = (
@@ -138,12 +138,12 @@ def test_shadow_builder_does_not_modify_live_manipulation_trade():
         stock.trading_stop_loss,
     ) == original_live_values
 
-    assert len(bot.alpaca.calls) == 1
+    assert len(bot.webull_strategy_market_data.calls) == 1
     assert (
-        bot.alpaca.calls[0]["symbols_csv"]
+        bot.webull_strategy_market_data.calls[0]["symbols_csv"]
         == "TEST"
     )
     assert (
-        bot.alpaca.calls[0]["end_date"]
+        bot.webull_strategy_market_data.calls[0]["end_date"]
         == "2026-08-13"
     )

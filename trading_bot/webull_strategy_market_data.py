@@ -600,6 +600,102 @@ class WebullStrategyMarketData:
 
         return results
 
+    def get_historical_opening_15min_bars(
+        self,
+        *,
+        symbols_csv: str,
+        start_date: str,
+        end_date: str,
+        feed: str | None = None,
+    ) -> dict[str, list[dict]]:
+        """
+        Return Webull native 09:30 ET 15-minute opening bars
+        within the requested inclusive date range.
+
+        This is read-only historical market data.
+        """
+        del feed
+
+        start = datetime.strptime(
+            start_date,
+            "%Y-%m-%d",
+        ).date()
+
+        end = datetime.strptime(
+            end_date,
+            "%Y-%m-%d",
+        ).date()
+
+        if end < start:
+            raise ValueError(
+                "Historical opening-bar end date "
+                "cannot be before start date."
+            )
+
+        results = {}
+
+        for symbol in _symbols_from_csv(
+            symbols_csv
+        ):
+            # 1000 is already exercised by the Webull
+            # reliability path in this project and is ample
+            # for the selling-pressure lookback requirement.
+            bars = self._history(
+                symbol=symbol,
+                timespan=Timespan.M15,
+                count=1000,
+            )
+
+            opening_bars = []
+
+            for bar in bars:
+                try:
+                    timestamp = (
+                        datetime
+                        .fromisoformat(
+                            str(
+                                bar["t"]
+                            ).replace(
+                                "Z",
+                                "+00:00",
+                            )
+                        )
+                        .astimezone(
+                            EASTERN
+                        )
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                if not (
+                    start
+                    <= timestamp.date()
+                    <= end
+                ):
+                    continue
+
+                if (
+                    timestamp.hour == 9
+                    and timestamp.minute == 30
+                ):
+                    opening_bars.append(
+                        bar
+                    )
+
+            opening_bars.sort(
+                key=lambda bar: bar["t"]
+            )
+
+            results[symbol] = (
+                opening_bars
+            )
+
+        return results
+
     def get_opening_15min_bars(
         self,
         *,
