@@ -349,3 +349,134 @@ def test_symbol_deduped_blocks_later_same_symbol_qf():
         day.v2_cash_retained
         == 0.25
     )
+
+
+
+def test_normalized_pool_does_not_create_fake_qf_cash():
+    rows = [
+        row(
+            "2026-03-02",
+            "A",
+            qf_signal="INVEST",
+            qf_entry="10",
+            qf_tp1="11",
+            qf_tp2="12",
+            qf_filled="YES",
+            qf_return="2",
+            qf_mfe="4",
+            qf_mae="-1",
+            qf_confirmation=(
+                "2026-03-02T15:00:00+00:00"
+            ),
+        ),
+        row(
+            "2026-03-03",
+            "A",
+            manip_signal="INVEST",
+            manip_entry="10",
+            manip_target="12",
+            manip_stop="9",
+            manip_filled="YES",
+            manip_return="1",
+            qf_signal="INVEST",
+            qf_entry="10",
+            qf_tp1="11",
+            qf_tp2="12",
+            qf_filled="YES",
+            qf_return="5",
+            qf_mfe="5",
+            qf_mae="-1",
+            qf_confirmation=(
+                "2026-03-03T15:00:00+00:00"
+            ),
+        ),
+        row(
+            "2026-03-03",
+            "B",
+            manip_signal="INVEST",
+            manip_entry="10",
+            manip_target="12",
+            manip_stop="9",
+            manip_filled="YES",
+            manip_return="2",
+        ),
+        row(
+            "2026-03-03",
+            "C",
+            manip_signal="INVEST",
+            manip_entry="10",
+            manip_target="12",
+            manip_stop="9",
+            manip_filled="YES",
+            manip_return="-1",
+        ),
+    ]
+
+    result = run_walk_forward(
+        rows=rows,
+        permanent_symbols={
+            "A",
+            "B",
+            "C",
+        },
+        portfolio_mode=(
+            SEPARATE_SIGNALS
+        ),
+        quick_flip_reserve_fraction=0.0,
+    )
+
+    day = result.days[1]
+
+    manip_allocations = [
+        allocation
+        for allocation in day.allocations
+        if allocation.strategy
+        == "MANIPULATION"
+    ]
+
+    qf_allocations = [
+        allocation
+        for allocation in day.allocations
+        if allocation.strategy
+        == "QUICK_FLIP"
+    ]
+
+    assert len(
+        manip_allocations
+    ) == 3
+
+    assert not qf_allocations
+
+    assert abs(
+        sum(
+            allocation.allocation
+            for allocation
+            in manip_allocations
+        )
+        - 1.0
+    ) < 1e-12
+
+    for allocation in (
+        manip_allocations
+    ):
+        assert abs(
+            allocation.allocation
+            - (1.0 / 3.0)
+        ) < 1e-12
+
+    assert abs(
+        day.v2_allocated
+        - 1.0
+    ) < 1e-12
+
+    assert abs(
+        day.v2_cash_retained
+    ) < 1e-12
+
+    # With zero reserve and the full Manipulation pool genuinely
+    # deployed, later Quick Flip cannot receive artificial cash
+    # created only by two-decimal research rounding.
+    assert abs(
+        day.v2_return_pct
+        - day.baseline_return_pct
+    ) < 1e-12

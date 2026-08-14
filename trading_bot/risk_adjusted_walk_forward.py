@@ -676,19 +676,30 @@ def simulate_walk_forward_day(
             )
         )
 
-        manipulation_cash_retained = (
-            plan.cash_retained
+        positive_allocations = [
+            allocation
+            for allocation in plan.allocations
+            if allocation.allocation_weight > 0
+        ]
+
+        positive_weight_total = sum(
+            float(
+                allocation.allocation_weight
+            )
+            for allocation
+            in positive_allocations
         )
 
+        if positive_weight_total > 0:
+            manipulation_cash_retained = 0.0
+        else:
+            manipulation_cash_retained = (
+                manipulation_pool
+            )
+
         for allocation in (
-            plan.allocations
+            positive_allocations
         ):
-            if (
-                allocation
-                .recommended_allocation
-                <= 0
-            ):
-                continue
 
             key = (
                 allocation.strategy,
@@ -707,9 +718,12 @@ def simulate_walk_forward_day(
                 )
             )
 
-            amount = float(
-                allocation
-                .recommended_allocation
+            amount = (
+                manipulation_pool
+                * float(
+                    allocation.allocation_weight
+                )
+                / positive_weight_total
             )
 
             allocations.append(
@@ -812,10 +826,12 @@ def simulate_walk_forward_day(
         if not opportunities:
             continue
 
+        event_pool = remaining
+
         plan = (
             build_shadow_risk_adjusted_plan(
                 opportunities,
-                deployable_pool=remaining,
+                deployable_pool=event_pool,
                 minimum_reward_risk=(
                     minimum_reward_risk
                 ),
@@ -828,19 +844,28 @@ def simulate_walk_forward_day(
             )
         )
 
-        remaining = (
-            plan.cash_retained
+        positive_allocations = [
+            allocation
+            for allocation in plan.allocations
+            if allocation.allocation_weight > 0
+        ]
+
+        positive_weight_total = sum(
+            float(
+                allocation.allocation_weight
+            )
+            for allocation
+            in positive_allocations
         )
 
+        if positive_weight_total > 0:
+            remaining = 0.0
+        else:
+            remaining = event_pool
+
         for allocation in (
-            plan.allocations
+            positive_allocations
         ):
-            if (
-                allocation
-                .recommended_allocation
-                <= 0
-            ):
-                continue
 
             key = (
                 allocation.strategy,
@@ -857,9 +882,12 @@ def simulate_walk_forward_day(
                 )
             )
 
-            amount = float(
-                allocation
-                .recommended_allocation
+            amount = (
+                event_pool
+                * float(
+                    allocation.allocation_weight
+                )
+                / positive_weight_total
             )
 
             allocations.append(
