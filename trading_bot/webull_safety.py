@@ -75,7 +75,21 @@ class WebullSafetyGate:
             WEBULL_REQUIRE_MANUAL_APPROVAL
         ),
         enforce_operational_cap: bool = True,
+        operational_cap_override: float | None = None,
+        hard_cap_override: float | None = None,
     ) -> WebullSafetyDecision:
+        operational_cap = (
+            WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+            if operational_cap_override is None
+            else float(operational_cap_override)
+        )
+
+        hard_cap = (
+            WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
+            if hard_cap_override is None
+            else float(hard_cap_override)
+        )
+
         current_exposure = account.current_total_exposure
         proposed_exposure = proposal.proposed_exposure
         projected_exposure = round(
@@ -91,13 +105,16 @@ class WebullSafetyGate:
                 proposed_exposure=proposed_exposure,
                 projected_exposure=projected_exposure,
                 available_cash=account.available_cash,
-                operational_cap=(
-                    WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
-                ),
-                hard_cap=(
-                    WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
-                ),
+                operational_cap=operational_cap,
+                hard_cap=hard_cap,
             )
+
+        if (
+            operational_cap <= 0
+            or hard_cap <= 0
+            or operational_cap > hard_cap
+        ):
+            return reject("INVALID_EXPOSURE_CAP")
 
         if not account.data_is_current:
             return reject("ACCOUNT_DATA_STALE_OR_UNKNOWN")
@@ -142,15 +159,13 @@ class WebullSafetyGate:
         if proposed_exposure > account.available_cash:
             return reject("INSUFFICIENT_AVAILABLE_CASH")
 
-        if projected_exposure > (
-            WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
-        ):
+        if projected_exposure > hard_cap:
             return reject("HARD_EXPOSURE_CAP_EXCEEDED")
 
         if (
             enforce_operational_cap
             and projected_exposure
-            > WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+            > operational_cap
         ):
             return reject("OPERATIONAL_EXPOSURE_CAP_EXCEEDED")
 
@@ -161,10 +176,8 @@ class WebullSafetyGate:
             proposed_exposure=proposed_exposure,
             projected_exposure=projected_exposure,
             available_cash=account.available_cash,
-            operational_cap=(
-                WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
-            ),
-            hard_cap=WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS,
+            operational_cap=operational_cap,
+            hard_cap=hard_cap,
         )
 
     @staticmethod

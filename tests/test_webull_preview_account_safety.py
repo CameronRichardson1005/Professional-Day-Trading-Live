@@ -105,7 +105,7 @@ def cash_account(
     )
 
 
-def test_preview_uses_remaining_operational_allowance():
+def test_preview_uses_dynamic_cash_safe_allowance():
     stock = invest_stock(
         "TEST",
         limit_buy=10.0,
@@ -151,14 +151,14 @@ def test_preview_uses_remaining_operational_allowance():
 
     assert len(results) == 1
     assert results[0]["status"] == "PREVIEW READY"
-    assert results[0]["quantity"] == 2
+    assert results[0]["quantity"] == 90
     assert (
         results[0]["estimatedPositionValue"]
-        == 20.0
+        == 900.0
     )
     assert (
         results[0]["remainingAllowanceBeforePreview"]
-        == 25.0
+        == 900.0
     )
 
 
@@ -209,15 +209,15 @@ def test_multiple_previews_reserve_shared_cap():
         })
 
     assert results[0]["status"] == "PREVIEW READY"
-    assert results[0]["quantity"] == 23
-    assert results[0]["estimatedPositionValue"] == 230.0
-    assert results[0]["recommendedAllocation"] == 237.5
+    assert results[0]["quantity"] == 45
+    assert results[0]["estimatedPositionValue"] == 450.0
+    assert results[0]["recommendedAllocation"] == 450.0
     assert results[0]["allocationWeight"] == 0.5
 
     assert results[1]["status"] == "PREVIEW READY"
-    assert results[1]["quantity"] == 23
-    assert results[1]["estimatedPositionValue"] == 230.0
-    assert results[1]["recommendedAllocation"] == 237.5
+    assert results[1]["quantity"] == 45
+    assert results[1]["estimatedPositionValue"] == 450.0
+    assert results[1]["recommendedAllocation"] == 450.0
     assert results[1]["allocationWeight"] == 0.5
 
     assert (

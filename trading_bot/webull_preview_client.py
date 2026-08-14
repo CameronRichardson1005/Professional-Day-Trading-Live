@@ -154,13 +154,12 @@ class WebullPreviewClient:
                 f"{stock.symbol} has invalid risk per share."
             )
 
+        # $500 is only the fallback when no account-aware
+        # allocation has been supplied.
         effective_max_position_value = (
             WEBULL_PREVIEW_MAX_POSITION_VALUE
             if max_position_value is None
-            else min(
-                WEBULL_PREVIEW_MAX_POSITION_VALUE,
-                float(max_position_value),
-            )
+            else float(max_position_value)
         )
 
         if effective_max_position_value <= 0:

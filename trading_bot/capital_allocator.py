@@ -22,6 +22,56 @@ class CapitalAllocationPlan:
     method: str = "EQUAL_WEIGHT_CASH_SAFE"
 
 
+def build_preview_exposure_ceiling(
+    account: WebullAccountState,
+    *,
+    deployment_fraction: float,
+) -> float:
+    """
+    Return the absolute exposure ceiling used only for preview
+    recommendations.
+
+    New preview capital is limited to the configured fraction of
+    the smaller of verified available cash and reported buying
+    power. Existing real account exposure is added back to the
+    absolute ceiling so it is not deducted twice.
+
+    Real-order safety limits are separate.
+    """
+    if not 0 < deployment_fraction <= 1:
+        raise ValueError(
+            "Deployment fraction must be greater than 0 "
+            "and at most 1."
+        )
+
+    available_cash = max(
+        0.0,
+        float(account.available_cash),
+    )
+
+    if account.buying_power is None:
+        safe_available_capital = available_cash
+    else:
+        safe_available_capital = min(
+            available_cash,
+            max(
+                0.0,
+                float(account.buying_power),
+            ),
+        )
+
+    new_capital_allowance = (
+        safe_available_capital
+        * float(deployment_fraction)
+    )
+
+    return round(
+        account.current_total_exposure
+        + new_capital_allowance,
+        2,
+    )
+
+
 def build_equal_weight_capital_plan(
     account: WebullAccountState,
     candidate_count: int,

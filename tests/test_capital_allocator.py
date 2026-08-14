@@ -156,3 +156,21 @@ def test_prior_daily_reservations_reduce_pool():
     )
     assert result.deployable_pool == 245.0
     assert result.per_candidate_budget == 122.5
+
+
+def test_ninety_percent_daily_deployment_limit():
+    result = build_equal_weight_capital_plan(
+        account(
+            cash=400.0,
+            buying_power=400.0,
+        ),
+        2,
+        deployment_fraction=0.90,
+        operational_cap=1000.0,
+        hard_cap=1000.0,
+    )
+
+    assert result.safe_capital_base == 400.0
+    assert result.deployable_cash == 360.0
+    assert result.deployable_pool == 360.0
+    assert result.per_candidate_budget == 180.0

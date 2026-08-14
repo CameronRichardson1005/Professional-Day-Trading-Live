@@ -235,16 +235,16 @@ def test_quick_flip_uses_remaining_exposure(
     assert preview["status"] == (
         "PREVIEW READY"
     )
-    assert preview["quantity"] == 2
+    assert preview["quantity"] == 90
     assert (
         preview["estimatedPositionValue"]
-        == 20.0
+        == 900.0
     )
     assert (
         preview[
             "remainingAllowanceBeforePreview"
         ]
-        == 25.0
+        == 900.0
     )
 
 

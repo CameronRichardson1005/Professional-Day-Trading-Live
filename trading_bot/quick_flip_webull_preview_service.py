@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .capital_allocator import (
     build_equal_weight_capital_plan,
+    build_preview_exposure_ceiling,
 )
 from .capital_reservation_store import (
     DailyCapitalReservationStore,
@@ -64,14 +65,13 @@ class QuickFlipWebullPreviewService:
     @staticmethod
     def _remaining_allowance(
         account: WebullAccountState,
+        *,
+        preview_exposure_ceiling: float,
+        reserved_before_batch: float,
     ) -> float:
-        operational_remaining = (
-            WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
-            - account.current_total_exposure
-        )
-
-        hard_remaining = (
-            WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
+        remaining = (
+            float(preview_exposure_ceiling)
+            - float(reserved_before_batch)
             - account.current_total_exposure
         )
 
@@ -79,8 +79,7 @@ class QuickFlipWebullPreviewService:
             max(
                 0.0,
                 min(
-                    operational_remaining,
-                    hard_remaining,
+                    remaining,
                     account.available_cash,
                 ),
             ),
@@ -278,6 +277,15 @@ class QuickFlipWebullPreviewService:
                 )
             )
 
+        preview_exposure_ceiling = (
+            build_preview_exposure_ceiling(
+                working_account,
+                deployment_fraction=(
+                    WEBULL_CAPITAL_DEPLOYMENT_FRACTION
+                ),
+            )
+        )
+
         allocation_plan = (
             build_equal_weight_capital_plan(
                 working_account,
@@ -286,15 +294,21 @@ class QuickFlipWebullPreviewService:
                     WEBULL_CAPITAL_DEPLOYMENT_FRACTION
                 ),
                 operational_cap=(
-                    WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+                    preview_exposure_ceiling
                 ),
                 hard_cap=(
-                    WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
+                    preview_exposure_ceiling
                 ),
                 reserved_recommendation_exposure=(
                     reserved_before_batch
                 ),
             )
+        )
+
+        preview_safety_ceiling = max(
+            0.0,
+            preview_exposure_ceiling
+            - reserved_before_batch,
         )
 
         previews: list[
@@ -305,7 +319,13 @@ class QuickFlipWebullPreviewService:
             try:
                 remaining_allowance = (
                     self._remaining_allowance(
-                        working_account
+                        working_account,
+                        preview_exposure_ceiling=(
+                            preview_exposure_ceiling
+                        ),
+                        reserved_before_batch=(
+                            reserved_before_batch
+                        ),
                     )
                 )
 
@@ -341,6 +361,12 @@ class QuickFlipWebullPreviewService:
                     account=working_account,
                     proposal=proposal,
                     require_manual_approval=False,
+                    operational_cap_override=(
+                        preview_safety_ceiling
+                    ),
+                    hard_cap_override=(
+                        preview_safety_ceiling
+                    ),
                 )
 
                 if not safety.allowed:

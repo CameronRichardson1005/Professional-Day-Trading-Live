@@ -216,12 +216,14 @@ WEBULL_PREVIEW_MAX_SHARES = int(
 )
 
 # Fraction of the conservative cash-safe capital base that may
-# be considered for today's recommendations. The existing
-# operational and hard exposure caps still apply independently.
+# be considered for today's preview recommendations.
+#
+# The hard real-order safety limits below are independent and are
+# NOT increased by this preview-allocation setting.
 WEBULL_CAPITAL_DEPLOYMENT_FRACTION = float(
     os.getenv(
         "WEBULL_CAPITAL_DEPLOYMENT_FRACTION",
-        "1.0",
+        "0.90",
     )
 )
 
