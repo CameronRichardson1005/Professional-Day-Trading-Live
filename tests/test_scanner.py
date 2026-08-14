@@ -186,3 +186,83 @@ def test_reliability_falls_back_when_history_is_insufficient():
         "OPEN",
         "SNAP",
     ]
+
+
+def test_full_candidate_ranking_preserves_production_top_three():
+    scanner = StockScanner(
+        current_symbols=["CORE"],
+    )
+
+    statistics = [
+        make_stats("FIFTH", avg_range_pct=6.0),
+        make_stats("FIRST", avg_range_pct=10.0),
+        make_stats("FOURTH", avg_range_pct=7.0),
+        make_stats("SECOND", avg_range_pct=9.0),
+        make_stats("SIXTH", avg_range_pct=5.0),
+        make_stats("THIRD", avg_range_pct=8.0),
+    ]
+
+    ranked = scanner.rank_candidates(
+        statistics
+    )
+
+    production = scanner.select_candidates(
+        statistics
+    )
+
+    assert [
+        row.symbol
+        for row in ranked
+    ] == [
+        "FIRST",
+        "SECOND",
+        "THIRD",
+        "FOURTH",
+        "FIFTH",
+        "SIXTH",
+    ]
+
+    assert [
+        row.symbol
+        for row in production
+    ] == [
+        "FIRST",
+        "SECOND",
+        "THIRD",
+    ]
+
+
+def test_scanner_alternatives_are_ranks_four_to_six():
+    scanner = StockScanner(
+        current_symbols=["CORE"],
+    )
+
+    statistics = [
+        make_stats("A", avg_range_pct=10.0),
+        make_stats("B", avg_range_pct=9.0),
+        make_stats("C", avg_range_pct=8.0),
+        make_stats("D", avg_range_pct=7.0),
+        make_stats("E", avg_range_pct=6.0),
+        make_stats("F", avg_range_pct=5.0),
+    ]
+
+    alternatives = (
+        scanner.select_alternatives(
+            statistics,
+            start_rank=4,
+            limit=3,
+        )
+    )
+
+    assert [
+        (
+            rank,
+            row.symbol,
+        )
+        for rank, row
+        in alternatives
+    ] == [
+        (4, "D"),
+        (5, "E"),
+        (6, "F"),
+    ]

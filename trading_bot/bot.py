@@ -124,6 +124,11 @@ class TradingBot:
         self.symbol_reliability = None
         self.scanner_data_source = None
 
+        # V1 ranks 4-6 are display/research alternatives only.
+        # They never enter self.stocks or production routing.
+        self.scanner_alternative_candidates = []
+        self.manipulation_alternative_stocks = {}
+
         # Forward research only. These variants never replace
         # Manipulation signal, entry, target, stop, or preview.
         self.manipulation_selling_pressure_shadows = {}
@@ -716,6 +721,8 @@ class TradingBot:
         self.scanner_statistics = None
         self.symbol_reliability = None
         self.scanner_data_source = None
+        self.scanner_alternative_candidates = []
+        self.manipulation_alternative_stocks = {}
 
         fallback_symbols = list(
             self.scanner.current_symbols
@@ -994,6 +1001,60 @@ class TradingBot:
 
             self.scanner_statistics = (
                 statistics
+            )
+
+            alternatives = (
+                self.scanner.select_alternatives(
+                    statistics,
+                    start_rank=4,
+                    limit=3,
+                )
+            )
+
+            reliable_symbols = (
+                self.scanner.reliable_symbol_set(
+                    reliability
+                )
+            )
+
+            if reliable_symbols is not None:
+                alternatives = [
+                    (
+                        rank,
+                        stats,
+                    )
+                    for rank, stats
+                    in alternatives
+                    if (
+                        stats.symbol
+                        in reliable_symbols
+                    )
+                ]
+
+            self.scanner_alternative_candidates = (
+                alternatives
+            )
+
+            print()
+            print(
+                "Scanner alternatives "
+                "(DISPLAY ONLY):"
+            )
+
+            if alternatives:
+                for rank, stats in alternatives:
+                    print(
+                        f"  Rank {rank}: "
+                        f"{stats.symbol} · "
+                        f"V1 score "
+                        f"{stats.ranking_score:.4f}"
+                    )
+            else:
+                print("  None")
+
+            print(
+                "Alternative symbols are NOT "
+                "production selections."
             )
 
         existing_stocks = (
@@ -3490,6 +3551,133 @@ class TradingBot:
             f"{result['status']}."
         )
 
+    def _calculate_manipulation_alternatives(
+            self,
+            *,
+            date_str: str,
+            market_data,
+    ) -> None:
+        """
+        Evaluate V1 ranks 4-6 using the same Manipulation strategy.
+
+        Alternative Stock objects remain completely separate from
+        self.stocks, so they cannot become production orders,
+        previews, approvals, or paper trades.
+        """
+        self.manipulation_alternative_stocks = {}
+
+        alternatives = list(
+            getattr(
+                self,
+                "scanner_alternative_candidates",
+                [],
+            )
+        )
+
+        if not alternatives:
+            return
+
+        alternative_symbols = [
+            stats.symbol
+            for _, stats in alternatives
+        ]
+
+        symbols_csv = ",".join(
+            alternative_symbols
+        )
+
+        opening_bars = (
+            market_data.get_opening_15min_bars(
+                symbols_csv=symbols_csv,
+                date_str=date_str,
+            )
+        )
+
+        atrs = (
+            market_data.get_previous_day_ranges_all(
+                symbols_csv=symbols_csv,
+                date_str=date_str,
+            )
+        )
+
+        print()
+        print(
+            "Manipulation scanner alternatives "
+            "(DISPLAY ONLY):"
+        )
+
+        for rank, stats in alternatives:
+            symbol = stats.symbol
+
+            stock = Stock(
+                symbol=symbol
+            )
+
+            opening_bar = opening_bars.get(
+                symbol
+            )
+
+            atr = atrs.get(
+                symbol
+            )
+
+            stock.opening_bar = opening_bar
+            stock.atr = atr
+            stock.strategy_name = (
+                MANIPULATION_STRATEGY_NAME
+            )
+            stock.strategy_status = (
+                "ALTERNATIVE - DISPLAY ONLY"
+            )
+
+            if (
+                opening_bar is None
+                or atr is None
+            ):
+                stock.signal = "NO INVEST"
+
+            else:
+                try:
+                    self.strategy.evaluate(
+                        stock=stock,
+                        opening_bar=opening_bar,
+                        atr=atr,
+                    )
+
+                except Exception as error:
+                    stock.signal = "NO INVEST"
+
+                    print(
+                        f"  Rank {rank} {symbol}: "
+                        "evaluation failed · "
+                        f"{error}"
+                    )
+
+            self.manipulation_alternative_stocks[
+                symbol
+            ] = stock
+
+            if stock.signal == "INVEST":
+                print(
+                    f"  Rank {rank} {symbol}: "
+                    "INVEST · "
+                    f"Entry {stock.limit_buy:.4f} · "
+                    f"Target {stock.limit_sell:.4f} · "
+                    "Trading stop "
+                    f"{stock.trading_stop_loss:.4f}"
+                )
+            else:
+                print(
+                    f"  Rank {rank} {symbol}: "
+                    "NO INVEST"
+                )
+
+        print(
+            "DISPLAY ONLY · alternatives were "
+            "not added to production routing."
+        )
+
+
     def _calculate_manipulation_strategy(
             self,
             date_str: str,
@@ -3551,6 +3739,28 @@ class TradingBot:
                     f"{symbol}: manipulation strategy "
                     f"evaluation failed: {error}"
                 )
+
+        try:
+            self._calculate_manipulation_alternatives(
+                date_str=date_str,
+                market_data=market_data,
+            )
+
+        except Exception as error:
+            self.manipulation_alternative_stocks = {}
+
+            print(
+                "WARNING: Manipulation scanner "
+                "alternative evaluation failed."
+            )
+            print(
+                "Alternative evaluation error: "
+                f"{error}"
+            )
+            print(
+                "Production Top-3 processing "
+                "is unchanged."
+            )
 
     @staticmethod
     def _quick_flip_candle_from_bar(

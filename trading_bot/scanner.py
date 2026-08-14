@@ -108,10 +108,15 @@ class StockScanner:
 
         return failures
 
-    def select_candidates(
+    def rank_candidates(
             self,
             statistics: Iterable[StockStats],
     ) -> list[StockStats]:
+        """
+        Return every eligible candidate in the exact V1 ranking.
+
+        Production selection remains limited by candidate_limit.
+        """
         current_set = set(self.current_symbols)
 
         eligible = [
@@ -128,8 +133,57 @@ class StockScanner:
             )
         )
 
-        return eligible[
+        return eligible
+
+    def select_candidates(
+            self,
+            statistics: Iterable[StockStats],
+    ) -> list[StockStats]:
+        return self.rank_candidates(
+            statistics
+        )[
             :self.rules.candidate_limit
+        ]
+
+    def select_alternatives(
+            self,
+            statistics: Iterable[StockStats],
+            *,
+            start_rank: int = 4,
+            limit: int = 3,
+    ) -> list[tuple[int, StockStats]]:
+        """
+        Return lower-ranked display/research candidates without
+        changing the official production Top-3.
+        """
+        if start_rank < 1:
+            raise ValueError(
+                "start_rank must be at least 1."
+            )
+
+        if limit < 0:
+            raise ValueError(
+                "limit cannot be negative."
+            )
+
+        ranked = self.rank_candidates(
+            statistics
+        )
+
+        start_index = start_rank - 1
+
+        return [
+            (
+                start_rank + offset,
+                stats,
+            )
+            for offset, stats
+            in enumerate(
+                ranked[
+                    start_index:
+                    start_index + limit
+                ]
+            )
         ]
 
     def reliable_symbol_set(
