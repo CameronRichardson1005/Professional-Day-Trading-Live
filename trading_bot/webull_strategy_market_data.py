@@ -7,7 +7,7 @@ from webull.data.common.category import Category
 from webull.data.common.timespan import Timespan
 
 from .indicators import calculate_wilder_atr
-from .scanner import StockStats
+from .scanner import OpeningReliability, StockStats
 
 
 EASTERN = ZoneInfo("America/New_York")
@@ -442,6 +442,163 @@ class WebullStrategyMarketData:
                 lookback_days=lookback_days,
             )
         )
+
+    def test_connection(
+        self,
+        symbols_csv: str,
+    ) -> dict[str, dict | None]:
+        """
+        Verify read-only Webull historical market-data access.
+
+        Returns the latest normalized daily bar available for each
+        requested symbol. No brokerage functionality is involved.
+        """
+        history = self.get_daily_history(
+            symbols_csv=symbols_csv,
+            count=5,
+        )
+
+        return {
+            symbol: (
+                bars[-1]
+                if bars
+                else None
+            )
+            for symbol, bars
+            in history.items()
+        }
+
+    def get_opening_reliability(
+        self,
+        *,
+        symbols_csv: str,
+        date_str: str,
+        lookback_days: int = 10,
+        feed: str | None = None,
+    ) -> list[OpeningReliability]:
+        """
+        Measure availability of Webull's native completed
+        09:30 15-minute opening candle over recent NYSE sessions.
+
+        This intentionally differs from the old Alpaca/IEX
+        minute-completeness measurement. Production strategies
+        consume Webull native timeframe bars, so reliability is
+        measured against the native opening bar actually required.
+        """
+        del feed
+
+        if lookback_days < 1:
+            raise ValueError(
+                "lookback_days must be at least 1."
+            )
+
+        from .market_calendar import (
+            nyse_trading_dates,
+        )
+
+        trading_date = (
+            datetime.strptime(
+                date_str,
+                "%Y-%m-%d",
+            ).date()
+        )
+
+        end_date = (
+            trading_date
+            - timedelta(days=1)
+        )
+
+        start_date = (
+            end_date
+            - timedelta(
+                days=max(
+                    lookback_days * 3,
+                    21,
+                )
+            )
+        )
+
+        sessions = list(
+            nyse_trading_dates(
+                start_date,
+                end_date,
+            )
+        )
+
+        expected_dates = [
+            session.isoformat()[:10]
+            for session in sessions
+        ][-lookback_days:]
+
+        expected_set = set(
+            expected_dates
+        )
+
+        results = []
+
+        for symbol in _symbols_from_csv(
+            symbols_csv
+        ):
+            bars = self._history(
+                symbol=symbol,
+                timespan=Timespan.M15,
+                count=1000,
+            )
+
+            observed_dates = set()
+
+            for bar in bars:
+                try:
+                    timestamp = (
+                        datetime
+                        .fromisoformat(
+                            str(
+                                bar["t"]
+                            ).replace(
+                                "Z",
+                                "+00:00",
+                            )
+                        )
+                        .astimezone(
+                            EASTERN
+                        )
+                    )
+                except ValueError:
+                    continue
+
+                day = (
+                    timestamp
+                    .date()
+                    .isoformat()
+                )
+
+                if day not in expected_set:
+                    continue
+
+                if (
+                    timestamp.hour == 9
+                    and timestamp.minute == 30
+                ):
+                    observed_dates.add(
+                        day
+                    )
+
+            results.append(
+                OpeningReliability(
+                    symbol=symbol,
+                    usable_days=len(
+                        expected_dates
+                    ),
+                    total_bars=len(
+                        observed_dates
+                    ),
+                    expected_bars=len(
+                        expected_dates
+                    ),
+                )
+            )
+
+        return results
 
     def get_opening_15min_bars(
         self,

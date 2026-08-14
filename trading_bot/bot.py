@@ -45,6 +45,7 @@ from .config import (
     CANDIDATE_TICKERS,
     MANIPULATION_STRATEGY_NAME,
     MARKET_DATA_FEED,
+    MARKET_DATA_PROVIDER,
     NEW_TRADING_SPREADSHEET_ID,
     QUICK_FLIP_MONITOR_CUTOFF,
     QUICK_FLIP_MONITOR_INTERVAL_SECONDS,
@@ -121,6 +122,7 @@ class TradingBot:
         )
         self.scanner_statistics = None
         self.symbol_reliability = None
+        self.scanner_data_source = None
 
         # Forward research only. These variants never replace
         # Manipulation signal, entry, target, stop, or preview.
@@ -574,45 +576,156 @@ class TradingBot:
             date_str: str,
             data_feed: str = MARKET_DATA_FEED,
     ) -> list[str]:
+        """
+        Refresh the production trading universe.
+
+        Webull is the default primary scanner source.
+        Alpaca remains a controlled fallback.
+
+        Scanner ranking rules are unchanged here. This method only
+        changes the market-data provider so provider migration can
+        be evaluated separately from formula changes.
+        """
         self.scanner_statistics = None
         self.symbol_reliability = None
+        self.scanner_data_source = None
 
         fallback_symbols = list(
             self.scanner.current_symbols
         )
 
-        try:
-            statistics = (
-                self.alpaca.get_scanner_statistics(
-                    symbols_csv=",".join(
-                        CANDIDATE_TICKERS
-                    ),
-                    date_str=date_str,
-                    feed=data_feed,
-                )
-            )
+        candidate_csv = ",".join(
+            CANDIDATE_TICKERS
+        )
 
+        reliability_csv = ",".join(
+            dict.fromkeys(
+                TICKERS
+                + CANDIDATE_TICKERS
+            )
+        )
+
+        source_order = (
+            ("WEBULL", "ALPACA")
+            if MARKET_DATA_PROVIDER
+            == "webull"
+            else ("ALPACA", "WEBULL")
+        )
+
+        statistics = None
+        reliability = None
+        selected_source = None
+
+        for source in source_order:
+            try:
+                if source == "WEBULL":
+                    market_data = (
+                        self
+                        ._get_webull_strategy_market_data()
+                    )
+
+                    statistics = (
+                        market_data
+                        .get_scanner_statistics(
+                            symbols_csv=(
+                                candidate_csv
+                            ),
+                            date_str=date_str,
+                        )
+                    )
+
+                else:
+                    statistics = (
+                        self.alpaca
+                        .get_scanner_statistics(
+                            symbols_csv=(
+                                candidate_csv
+                            ),
+                            date_str=date_str,
+                            feed=data_feed,
+                        )
+                    )
+
+                if not statistics:
+                    raise RuntimeError(
+                        "No scanner statistics "
+                        "were returned."
+                    )
+
+            except Exception as error:
+                print(
+                    f"{source} scanner statistics "
+                    f"failed: {error}"
+                )
+
+                statistics = None
+                continue
+
+            selected_source = source
             reliability = None
 
             try:
-                reliability = (
-                    self.alpaca.get_opening_reliability(
-                        symbols_csv=",".join(
-                            dict.fromkeys(
-                                TICKERS
-                                + CANDIDATE_TICKERS
-                            )
-                        ),
-                        date_str=date_str,
-                        feed=data_feed,
+                if source == "WEBULL":
+                    reliability = (
+                        market_data
+                        .get_opening_reliability(
+                            symbols_csv=(
+                                reliability_csv
+                            ),
+                            date_str=date_str,
+                        )
                     )
-                )
+
+                else:
+                    reliability = (
+                        self.alpaca
+                        .get_opening_reliability(
+                            symbols_csv=(
+                                reliability_csv
+                            ),
+                            date_str=date_str,
+                            feed=data_feed,
+                        )
+                    )
+
             except Exception as reliability_error:
                 print(
-                    "Opening reliability check failed. "
-                    "Continuing without reliability filtering. "
+                    f"{source} reliability check "
+                    "failed. Continuing without "
+                    "reliability filtering. "
                     f"Reason: {reliability_error}"
                 )
+
+            break
+
+        if (
+            statistics is None
+            or selected_source is None
+        ):
+            print(
+                "Stock scanner failed from all "
+                "configured market-data sources. "
+                "Using existing tickers."
+            )
+
+            selected_symbols = (
+                fallback_symbols
+            )
+
+        else:
+            self.scanner_data_source = (
+                selected_source
+            )
+
+            print(
+                "Primary market data:",
+                MARKET_DATA_PROVIDER.upper(),
+            )
+
+            print(
+                "Scanner market data:",
+                selected_source,
+            )
 
             selected_symbols = (
                 self.scanner.select_symbols(
@@ -622,72 +735,112 @@ class TradingBot:
             )
 
             if reliability is not None:
-                for record in reliability:
-                    print(
-                        f"{record.symbol}: "
-                        f"{data_feed.upper()} opening reliability "
-                        f"{record.completeness:.1%} across "
-                        f"{record.usable_days} day(s)."
-                    )
-
-            if reliability is not None:
-                selected_set = set(selected_symbols)
+                selected_set = set(
+                    selected_symbols
+                )
 
                 for record in reliability:
                     if (
-                        record.usable_days
-                        < self.scanner.rules.minimum_reliability_days
+                        selected_source
+                        == "WEBULL"
                     ):
-                        status = (
-                            "FALLBACK - INSUFFICIENT HISTORY"
-                        )
-                    elif record.symbol in selected_set:
-                        status = "SELECTED"
-                    elif (
-                        record.completeness
-                        < self.scanner.rules.minimum_opening_completeness
-                    ):
-                        status = (
-                            "EXCLUDED - LOW IEX RELIABILITY"
+                        reliability_description = (
+                            "WEBULL native 15Min "
+                            "opening availability"
                         )
                     else:
-                        status = (
-                            "NOT SELECTED - RANKING LIMIT"
+                        reliability_description = (
+                            f"{data_feed.upper()} "
+                            "opening reliability"
                         )
 
                     print(
-                        f"{record.symbol}: {status}"
+                        f"{record.symbol}: "
+                        f"{reliability_description} "
+                        f"{record.completeness:.1%} "
+                        f"across "
+                        f"{record.usable_days} "
+                        "session(s)."
                     )
 
-            if reliability is not None:
-                selected_set = set(selected_symbols)
+                    if (
+                        record.usable_days
+                        < self.scanner.rules
+                        .minimum_reliability_days
+                    ):
+                        status = (
+                            "FALLBACK - "
+                            "INSUFFICIENT HISTORY"
+                        )
+
+                    elif (
+                        record.symbol
+                        in selected_set
+                    ):
+                        status = "SELECTED"
+
+                    elif (
+                        record.completeness
+                        < self.scanner.rules
+                        .minimum_opening_completeness
+                    ):
+                        status = (
+                            "EXCLUDED - LOW "
+                            f"{selected_source} "
+                            "RELIABILITY"
+                        )
+
+                    else:
+                        status = (
+                            "NOT SELECTED - "
+                            "RANKING LIMIT"
+                        )
+
+                    print(
+                        f"{record.symbol}: "
+                        f"{status}"
+                    )
+
                 reliability_payload = []
 
                 for record in reliability:
                     if (
                         record.usable_days
-                        < self.scanner.rules.minimum_reliability_days
+                        < self.scanner.rules
+                        .minimum_reliability_days
                     ):
                         status = (
-                            "FALLBACK_INSUFFICIENT_HISTORY"
+                            "FALLBACK_"
+                            "INSUFFICIENT_HISTORY"
                         )
-                    elif record.symbol in selected_set:
+
+                    elif (
+                        record.symbol
+                        in selected_set
+                    ):
                         status = "SELECTED"
+
                     elif (
                         record.completeness
-                        < self.scanner.rules.minimum_opening_completeness
+                        < self.scanner.rules
+                        .minimum_opening_completeness
                     ):
                         status = (
-                            "EXCLUDED_LOW_RELIABILITY"
+                            "EXCLUDED_LOW_"
+                            "RELIABILITY"
                         )
+
                     else:
                         status = (
-                            "NOT_SELECTED_RANKING_LIMIT"
+                            "NOT_SELECTED_"
+                            "RANKING_LIMIT"
                         )
 
                     reliability_payload.append(
                         {
-                            "symbol": record.symbol,
+                            "symbol": (
+                                record.symbol
+                            ),
                             "completeness": round(
                                 record.completeness,
                                 6,
@@ -702,6 +855,9 @@ class TradingBot:
                                 record.expected_bars
                             ),
                             "status": status,
+                            "source": (
+                                selected_source
+                            ),
                         }
                     )
 
@@ -709,32 +865,32 @@ class TradingBot:
                     reliability_payload
                 )
 
-            self.scanner_statistics = statistics
-
-        except Exception as error:
-            print(
-                "Stock scanner failed. "
-                "Using existing tickers."
+            self.scanner_statistics = (
+                statistics
             )
-            print(f"Scanner error: {error}")
 
-            selected_symbols = fallback_symbols
-
-        existing_stocks = self.stocks
+        existing_stocks = (
+            self.stocks
+        )
 
         self.stocks = {
             symbol: existing_stocks.get(
                 symbol,
                 Stock(symbol=symbol),
             )
-            for symbol in selected_symbols
+            for symbol
+            in selected_symbols
         }
 
-        self.symbols_csv = ",".join(selected_symbols)
+        self.symbols_csv = ",".join(
+            selected_symbols
+        )
 
         print(
             "Selected symbols:",
-            ", ".join(selected_symbols),
+            ", ".join(
+                selected_symbols
+            ),
         )
 
         return selected_symbols
@@ -1275,40 +1431,71 @@ class TradingBot:
             print(stock.symbol)
 
         print()
-        print("Testing Alpaca market-data connection...")
+        print(
+            "Testing primary market-data "
+            f"connection ({MARKET_DATA_PROVIDER.upper()})..."
+        )
 
         try:
-            recent_bars = self.alpaca.test_connection(
-                self.symbols_csv
-            )
+            if MARKET_DATA_PROVIDER == "webull":
+                recent_bars = (
+                    self
+                    ._get_webull_strategy_market_data()
+                    .test_connection(
+                        self.symbols_csv
+                    )
+                )
+
+            else:
+                recent_bars = (
+                    self.alpaca
+                    .test_connection(
+                        self.symbols_csv
+                    )
+                )
 
             successful_symbols = [
                 symbol
-                for symbol, bar in recent_bars.items()
+                for symbol, bar
+                in recent_bars.items()
                 if bar is not None
             ]
 
             missing_symbols = [
                 symbol
-                for symbol, bar in recent_bars.items()
+                for symbol, bar
+                in recent_bars.items()
                 if bar is None
             ]
 
-            print("Alpaca connection successful.")
+            print(
+                f"{MARKET_DATA_PROVIDER.upper()} "
+                "connection successful."
+            )
+
             print(
                 "Symbols returned:",
-                ", ".join(successful_symbols),
+                ", ".join(
+                    successful_symbols
+                ),
             )
 
             if missing_symbols:
                 print(
                     "No recent bars returned for:",
-                    ", ".join(missing_symbols),
+                    ", ".join(
+                        missing_symbols
+                    ),
                 )
 
         except Exception as error:
-            print("Alpaca connection test failed.")
-            print(f"Error: {error}")
+            print(
+                f"{MARKET_DATA_PROVIDER.upper()} "
+                "connection test failed."
+            )
+            print(
+                f"Error: {error}"
+            )
             return
 
         print()

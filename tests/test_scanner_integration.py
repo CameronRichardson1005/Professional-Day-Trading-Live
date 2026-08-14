@@ -1,3 +1,23 @@
+import pytest
+import trading_bot.bot as bot_module
+
+
+@pytest.fixture(autouse=True)
+def _use_alpaca_scanner_for_legacy_tests(
+        monkeypatch,
+):
+    """
+    Preserve these existing tests as Alpaca-fallback tests.
+
+    Webull-primary routing has dedicated tests elsewhere.
+    """
+    monkeypatch.setattr(
+        bot_module,
+        "MARKET_DATA_PROVIDER",
+        "alpaca",
+    )
+
+
 from datetime import datetime as RealDateTime
 from types import SimpleNamespace
 
@@ -62,7 +82,7 @@ def test_bot_refreshes_symbols_from_scanner_results():
     ] == ["SNAP"]
 
 
-def test_scanner_failure_uses_current_symbols():
+def test_all_scanner_sources_failure_uses_current_symbols():
     bot = object.__new__(TradingBot)
 
     original_stock = SimpleNamespace(
@@ -71,9 +91,13 @@ def test_scanner_failure_uses_current_symbols():
 
     bot.stocks = {
         "CORE": original_stock,
-        "OLD": SimpleNamespace(symbol="OLD"),
+        "OLD": SimpleNamespace(
+            symbol="OLD"
+        ),
     }
+
     bot.symbols_csv = "CORE,OLD"
+
     bot.scanner = StockScanner(
         current_symbols=["CORE"],
     )
@@ -81,26 +105,52 @@ def test_scanner_failure_uses_current_symbols():
     class FailingAlpaca:
         def get_scanner_statistics(
                 self,
-                symbols_csv,
-                date_str,
+                **kwargs,
         ):
             raise RuntimeError(
-                "CONTROLLED SCANNER FAILURE"
+                "CONTROLLED ALPACA FAILURE"
+            )
+
+    class FailingWebull:
+        def get_scanner_statistics(
+                self,
+                **kwargs,
+        ):
+            raise RuntimeError(
+                "CONTROLLED WEBULL FAILURE"
             )
 
     bot.alpaca = FailingAlpaca()
 
-    selected = bot.refresh_symbols_for_date(
-        "2026-07-27"
+    # Prevent this unit test from ever contacting
+    # the real Webull API.
+    bot.webull_strategy_market_data = (
+        FailingWebull()
+    )
+
+    selected = (
+        bot.refresh_symbols_for_date(
+            "2026-07-27"
+        )
     )
 
     assert selected == ["CORE"]
-    assert bot.stocks == {
-        "CORE": original_stock,
-    }
-    assert bot.symbols_csv == "CORE"
-    assert bot.scanner_statistics is None
 
+    assert (
+        bot.stocks["CORE"]
+        is original_stock
+    )
+
+    assert list(
+        bot.stocks
+    ) == ["CORE"]
+
+    assert bot.symbols_csv == "CORE"
+
+    assert (
+        bot.scanner_data_source
+        is None
+    )
 
 def test_candidate_configuration_is_distinct():
     assert len(CANDIDATE_TICKERS) == len(

@@ -34,6 +34,27 @@ if ALPACA_DATA_FEED not in {"iex", "sip"}:
 
 MARKET_DATA_FEED = ALPACA_DATA_FEED
 
+# Primary market-data provider for production decisions.
+#
+# Webull is the default because production strategy market data
+# and the trading workflow are Webull-based.
+#
+# Alpaca remains available as a controlled fallback and for
+# research/source comparisons.
+MARKET_DATA_PROVIDER = os.getenv(
+    "MARKET_DATA_PROVIDER",
+    "webull",
+).strip().lower()
+
+if MARKET_DATA_PROVIDER not in {
+    "webull",
+    "alpaca",
+}:
+    raise RuntimeError(
+        "MARKET_DATA_PROVIDER must be "
+        "'webull' or 'alpaca'."
+    )
+
 
 # Standalone live Manipulation strategy.
 MANIPULATION_STRATEGY_NAME = "MANIPULATION_OPENING_15M"
