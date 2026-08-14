@@ -6,8 +6,8 @@ from datetime import datetime
 
 QUICK_FLIP_STRATEGY_NAME = "QUICK_FLIP"
 
-# Opening 15-minute candle must be at least
-# 25% larger than the 14-day ATR.
+# Opening 15-minute candle range must be at least
+# 25% of the 14-day ATR.
 QUICK_FLIP_LIQUIDITY_MULTIPLIER = 0.25
 
 
@@ -99,7 +99,7 @@ class QuickFlipStrategy:
     --------
     1. Calculate 14-day ATR externally.
     2. Wait for the opening 15-minute candle to close.
-    3. Opening candle range must be >= 1.25 * ATR14.
+    3. Opening candle range must be >= 0.25 * ATR14.
     4. That SAME opening candle creates the box.
     5. Watch 5-minute candles below the box.
     6. Find either:
