@@ -703,6 +703,325 @@ class TradingBot:
             ),
         }
 
+    def run_scanner_realized_research(
+            self,
+            start_date_str: str,
+            end_date_str: str,
+            data_feed: str = MARKET_DATA_FEED,
+    ) -> dict:
+        """
+        Build a repeatable realized-strategy research dataset
+        across the full production symbol universe.
+
+        Research only:
+        - permanent production symbols are included for
+          realized strategy outcomes;
+        - scanner ranking remains controlled by the existing
+          candidate-only scanner-research workflow;
+        - existing valid Webull minute-cache sessions are reused;
+        - no Google Sheets writes;
+        - no dashboard publishing;
+        - no preview sizing changes;
+        - no broker orders.
+        """
+        from collections import Counter
+        from datetime import date
+        from pathlib import Path
+
+        from .market_calendar import (
+            nyse_trading_dates,
+        )
+        from .scanner_intraday_cache import (
+            cache_webull_minute_history,
+            load_cached_minute_session,
+        )
+        from .scanner_master_dataset import (
+            build_atr_history,
+            build_master_rows,
+            load_webull_scanner_index,
+            write_master_csv,
+        )
+
+        start_date = date.fromisoformat(
+            start_date_str
+        )
+
+        end_date = date.fromisoformat(
+            end_date_str
+        )
+
+        if end_date < start_date:
+            raise ValueError(
+                "Realized research end date cannot be "
+                "before start date."
+            )
+
+        trading_dates = list(
+            nyse_trading_dates(
+                start_date,
+                end_date,
+            )
+        )
+
+        if not trading_dates:
+            raise ValueError(
+                "No NYSE trading sessions were "
+                "found in the requested range."
+            )
+
+        # Permanent production symbols are always observed.
+        # Candidate scanner rankings remain produced by the
+        # existing candidate-only scanner-research workflow.
+        symbols = sorted(
+            set(TICKERS)
+            | set(CANDIDATE_TICKERS)
+        )
+
+        symbols_csv = ",".join(
+            symbols
+        )
+
+        print()
+        print(
+            "FULL REALIZED RESEARCH UNIVERSE"
+        )
+        print(
+            "--------------------------------"
+        )
+        print(
+            "Permanent symbols: "
+            f"{len(set(TICKERS))}"
+        )
+        print(
+            "Candidate symbols: "
+            f"{len(set(CANDIDATE_TICKERS))}"
+        )
+        print(
+            "Total unique symbols: "
+            f"{len(symbols)}"
+        )
+
+        # Reuse the existing scanner-research implementation.
+        # Its universe remains candidate-only, preserving the
+        # V1/V2/V3/V4 scanner comparison exactly as designed.
+        scanner_result = (
+            self.run_scanner_research(
+                start_date_str,
+                end_date_str,
+                data_feed=data_feed,
+            )
+        )
+
+        scanner_path = Path(
+            scanner_result[
+                "output_path"
+            ]
+        )
+
+        scanner_index = (
+            load_webull_scanner_index(
+                scanner_path
+            )
+        )
+
+        webull = (
+            self._get_webull_strategy_market_data()
+        )
+
+        output_dir = (
+            Path(__file__)
+            .resolve()
+            .parents[1]
+            / "runtime"
+            / "research"
+        )
+
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        cache_dir = (
+            output_dir
+            / "webull_minute_cache"
+        )
+
+        print()
+        print(
+            "Checking Webull minute cache..."
+        )
+
+        cache_summary = (
+            cache_webull_minute_history(
+                market_data=webull,
+                symbols=symbols,
+                trading_dates=trading_dates,
+                cache_dir=cache_dir,
+            )
+        )
+
+        print()
+        print(
+            "WEBULL MINUTE CACHE SUMMARY"
+        )
+        print(
+            "---------------------------"
+        )
+        print(
+            "Requests: "
+            f"{cache_summary.requests}"
+        )
+        print(
+            "Already cached sessions: "
+            f"{cache_summary.sessions_already_cached}"
+        )
+        print(
+            "Downloaded sessions: "
+            f"{cache_summary.sessions_downloaded}"
+        )
+        print(
+            "Missing sessions: "
+            f"{len(cache_summary.sessions_missing)}"
+        )
+
+        print()
+        print(
+            "Loading Webull native opening "
+            "15-minute history..."
+        )
+
+        opening_history = (
+            webull
+            .get_historical_opening_15min_bars(
+                symbols_csv=symbols_csv,
+                start_date=start_date_str,
+                end_date=end_date_str,
+            )
+        )
+
+        print(
+            "Loading Webull daily history "
+            "for ATR14..."
+        )
+
+        daily_history = (
+            webull.get_daily_history(
+                symbols_csv=symbols_csv,
+                count=400,
+            )
+        )
+
+        atr_history = (
+            build_atr_history(
+                daily_history=daily_history,
+                trading_dates=trading_dates,
+                symbols=symbols,
+            )
+        )
+
+        print(
+            "Building realized strategy master..."
+        )
+
+        rows = build_master_rows(
+            trading_dates=trading_dates,
+            symbols=symbols,
+            scanner_index=scanner_index,
+            opening_history=opening_history,
+            atr_history=atr_history,
+            minute_loader=(
+                lambda symbol, date_str:
+                load_cached_minute_session(
+                    cache_dir=cache_dir,
+                    symbol=symbol,
+                    date_str=date_str,
+                )
+            ),
+        )
+
+        output_path = (
+            output_dir
+            / (
+                "scanner_realized_master_"
+                f"{start_date_str}_to_"
+                f"{end_date_str}.csv"
+            )
+        )
+
+        write_master_csv(
+            rows=rows,
+            output_path=output_path,
+        )
+
+        statuses = Counter(
+            str(
+                row.get(
+                    "evaluation_status",
+                    "",
+                )
+            )
+            for row in rows
+        )
+
+        print()
+        print(
+            "REALIZED RESEARCH SUMMARY"
+        )
+        print(
+            "-------------------------"
+        )
+        print(
+            "Trading sessions: "
+            f"{len(trading_dates)}"
+        )
+        print(
+            "Research symbols: "
+            f"{len(symbols)}"
+        )
+        print(
+            "Master rows: "
+            f"{len(rows)}"
+        )
+
+        for status, count in sorted(
+            statuses.items()
+        ):
+            print(
+                f"{status or 'BLANK'}: "
+                f"{count}"
+            )
+
+        print(
+            "Realized master CSV:",
+            output_path,
+        )
+
+        return {
+            "start_date": start_date_str,
+            "end_date": end_date_str,
+            "trading_dates": len(
+                trading_dates
+            ),
+            "symbols": len(symbols),
+            "rows": len(rows),
+            "cache_requests": (
+                cache_summary.requests
+            ),
+            "cache_sessions_downloaded": (
+                cache_summary.sessions_downloaded
+            ),
+            "cache_sessions_missing": len(
+                cache_summary.sessions_missing
+            ),
+            "scanner_output_path": str(
+                scanner_path
+            ),
+            "output_path": str(
+                output_path
+            ),
+        }
+
+
     def refresh_symbols_for_date(
             self,
             date_str: str,

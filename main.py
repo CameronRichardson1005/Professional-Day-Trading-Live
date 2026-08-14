@@ -12,6 +12,7 @@ AVAILABLE_MODES = (
     "market-day",
     "backfill",
     "scanner-research",
+    "scanner-realized-research",
     "test",
     "smoke",
     "preflight",
@@ -100,6 +101,20 @@ def main() -> int:
                 return 2
 
             bot.run_scanner_research(
+                sys.argv[2],
+                sys.argv[3],
+            )
+
+        elif mode == "scanner-realized-research":
+            if len(sys.argv) != 4:
+                print(
+                    "Usage: python main.py "
+                    "scanner-realized-research "
+                    "START_DATE END_DATE"
+                )
+                return 2
+
+            bot.run_scanner_realized_research(
                 sys.argv[2],
                 sys.argv[3],
             )

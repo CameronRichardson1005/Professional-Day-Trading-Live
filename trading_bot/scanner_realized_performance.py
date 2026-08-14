@@ -67,6 +67,13 @@ class RealizedStrategyObservation:
     quick_flip_endpoint_price: float | None
     quick_flip_endpoint_return_pct: float | None
 
+    # Optional causal timestamps added for realized research.
+    #
+    # Defaults preserve compatibility with older callers that
+    # construct RealizedStrategyObservation directly.
+    quick_flip_reversal_time: datetime | None = None
+    quick_flip_confirmation_time: datetime | None = None
+
 
 def _parse_timestamp(
     value: object,
@@ -422,6 +429,18 @@ def evaluate_realized_strategy_observation(
         ),
         quick_flip_tp2=(
             quick_flip_signal.take_profit_2
+            if quick_flip_signal
+            is not None
+            else None
+        ),
+        quick_flip_reversal_time=(
+            quick_flip_signal.reversal_time
+            if quick_flip_signal
+            is not None
+            else None
+        ),
+        quick_flip_confirmation_time=(
+            quick_flip_signal.confirmation_time
             if quick_flip_signal
             is not None
             else None

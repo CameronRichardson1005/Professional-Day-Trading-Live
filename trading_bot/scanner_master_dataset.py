@@ -92,6 +92,8 @@ MASTER_FIELDNAMES = [
     "quick_flip_entry",
     "quick_flip_tp1",
     "quick_flip_tp2",
+    "quick_flip_reversal_time",
+    "quick_flip_confirmation_time",
     "quick_flip_filled",
     "quick_flip_fill_time",
     "quick_flip_tp1_hit",
@@ -427,7 +429,7 @@ def build_master_rows(
     ],
 ) -> list[dict[str, object]]:
     """
-    Build one deterministic row for every date × candidate.
+    Build one deterministic row for every date × research symbol.
 
     Scanner models share the same realized strategy observation.
     This prevents execution assumptions from drifting between
@@ -682,6 +684,24 @@ def build_master_rows(
                     .quick_flip_tp2
                     if observation
                     .quick_flip_tp2
+                    is not None
+                    else ""
+                ),
+                "quick_flip_reversal_time": (
+                    observation
+                    .quick_flip_reversal_time
+                    .isoformat()
+                    if observation
+                    .quick_flip_reversal_time
+                    is not None
+                    else ""
+                ),
+                "quick_flip_confirmation_time": (
+                    observation
+                    .quick_flip_confirmation_time
+                    .isoformat()
+                    if observation
+                    .quick_flip_confirmation_time
                     is not None
                     else ""
                 ),

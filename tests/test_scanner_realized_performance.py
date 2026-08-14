@@ -298,6 +298,45 @@ def test_realized_observation_uses_existing_strategies():
         == 9.95
     )
 
+
+    assert (
+        observation.quick_flip_reversal_time
+        is not None
+    )
+
+    reversal_time = (
+        observation
+        .quick_flip_reversal_time
+        .astimezone(EASTERN)
+    )
+
+    assert (
+        reversal_time.hour,
+        reversal_time.minute,
+    ) == (
+        9,
+        50,
+    )
+
+    assert (
+        observation.quick_flip_confirmation_time
+        is not None
+    )
+
+    confirmation_time = (
+        observation
+        .quick_flip_confirmation_time
+        .astimezone(EASTERN)
+    )
+
+    assert (
+        confirmation_time.hour,
+        confirmation_time.minute,
+    ) == (
+        9,
+        55,
+    )
+
     assert (
         observation.quick_flip_filled
         is True

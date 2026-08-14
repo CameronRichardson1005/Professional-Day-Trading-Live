@@ -279,6 +279,17 @@ def test_master_row_joins_scanner_and_realized_data():
         == "NO INVEST"
     )
 
+
+    assert (
+        row["quick_flip_reversal_time"]
+        == ""
+    )
+
+    assert (
+        row["quick_flip_confirmation_time"]
+        == ""
+    )
+
     assert (
         row["missing_minutes"]
         == 0
