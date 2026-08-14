@@ -2136,6 +2136,86 @@ class TradingBot:
             )
 
 
+        self._run_risk_adjusted_live_shadow_safely(
+            date_str=date_str,
+        )
+
+
+    def _run_risk_adjusted_live_shadow_safely(
+            self,
+            date_str: str,
+    ) -> None:
+        """
+        Run V2 capital allocation in observation-only mode.
+
+        Failure here must never interrupt or alter the live
+        Manipulation or Quick Flip workflow.
+        """
+        try:
+            self.write_risk_adjusted_live_shadow(
+                date_str=date_str,
+            )
+        except Exception as error:
+            print(
+                "WARNING: Risk-adjusted capital shadow "
+                "report failed. "
+                "Live preview sizing remains unchanged."
+            )
+            print(
+                "Risk-adjusted shadow error: "
+                f"{error}"
+            )
+
+
+    def write_risk_adjusted_live_shadow(
+            self,
+            date_str: str,
+    ) -> None:
+        """
+        Persist the end-of-session V2 capital comparison.
+
+        This observes current preview recommendations only and
+        cannot modify Webull preview or broker-order sizing.
+        """
+        from .risk_adjusted_live_shadow import (
+            write_live_shadow_snapshot,
+        )
+
+        output_path, payload = (
+            write_live_shadow_snapshot(
+                trading_date=date_str,
+                stocks=getattr(
+                    self,
+                    "stocks",
+                    {},
+                ),
+                quick_flip_results=getattr(
+                    self,
+                    "quick_flip_results",
+                    {},
+                ),
+                quick_flip_previews=getattr(
+                    self,
+                    "quick_flip_webull_previews",
+                    [],
+                ),
+            )
+        )
+
+        print()
+        print(
+            "Risk-adjusted V2 shadow report: "
+            f"{payload.get('status', 'UNKNOWN')}"
+        )
+        print(
+            "Risk-adjusted V2 shadow file: "
+            f"{output_path}"
+        )
+        print(
+            "Live preview sizing changed: NO"
+        )
+
+
     @staticmethod
     def _quick_flip_signal_key(
             symbol,

@@ -68,6 +68,12 @@ def test_live_strategy_runs_before_dashboard(
         )
     )
 
+    bot._run_risk_adjusted_live_shadow_safely = (
+        lambda **kwargs: events.append(
+            "risk-shadow"
+        )
+    )
+
     monkeypatch.setattr(
         bot_module,
         "datetime",
@@ -86,4 +92,11 @@ def test_live_strategy_runs_before_dashboard(
         "strategy"
     ) < events.index(
         "dashboard"
+    )
+
+
+    assert events.index(
+        "quick-flip"
+    ) < events.index(
+        "risk-shadow"
     )
