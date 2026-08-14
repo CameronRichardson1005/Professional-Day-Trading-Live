@@ -227,6 +227,348 @@ class TradingBot:
         )
 
 
+    def run_scanner_research(
+            self,
+            start_date_str: str,
+            end_date_str: str,
+            data_feed: str = MARKET_DATA_FEED,
+    ) -> dict:
+        """
+        Compare scanner ranking models across Alpaca and Webull.
+
+        Research only:
+        - does not alter self.scanner
+        - does not alter production symbol routing
+        - does not write Google Sheets
+        - does not publish the dashboard
+        - does not create or submit broker orders
+        """
+        import csv
+        from collections import Counter
+        from datetime import date
+        from pathlib import Path
+
+        from .market_calendar import (
+            nyse_trading_dates,
+        )
+        from .scanner_research import (
+            rank_scanner_models,
+        )
+
+        start_date = date.fromisoformat(
+            start_date_str
+        )
+
+        end_date = date.fromisoformat(
+            end_date_str
+        )
+
+        if end_date < start_date:
+            raise ValueError(
+                "Research end date cannot be "
+                "before start date."
+            )
+
+        trading_dates = nyse_trading_dates(
+            start_date,
+            end_date,
+        )
+
+        if not trading_dates:
+            raise ValueError(
+                "No NYSE trading sessions were "
+                "found in the requested range."
+            )
+
+        universe_csv = ",".join(
+            CANDIDATE_TICKERS
+        )
+
+        # Webull is intentionally prefetched only once per symbol.
+        # This avoids repeating a Webull history request for every
+        # historical trading date in the research window.
+        webull_history = None
+
+        try:
+            webull = (
+                self._get_webull_strategy_market_data()
+            )
+
+            webull_history = (
+                webull.get_daily_history(
+                    symbols_csv=universe_csv,
+                    count=400,
+                )
+            )
+
+            print(
+                "Webull scanner history loaded "
+                f"for {len(webull_history)} symbol(s)."
+            )
+
+        except Exception as error:
+            print(
+                "Webull scanner research source failed: "
+                f"{error}"
+            )
+
+        output_rows = []
+        frequencies = {}
+
+        total_dates = len(
+            trading_dates
+        )
+
+        for index, trading_day in enumerate(
+            trading_dates,
+            start=1,
+        ):
+            date_str = (
+                trading_day.isoformat()[:10]
+            )
+
+            print(
+                "Scanner research "
+                f"{index}/{total_dates}: "
+                f"{date_str}"
+            )
+
+            source_statistics = {}
+
+            try:
+                source_statistics[
+                    "ALPACA"
+                ] = (
+                    self.alpaca.get_scanner_statistics(
+                        symbols_csv=universe_csv,
+                        date_str=date_str,
+                        feed=data_feed,
+                    )
+                )
+
+            except Exception as error:
+                print(
+                    f"{date_str} Alpaca research "
+                    f"failed: {error}"
+                )
+
+            if webull_history is not None:
+                try:
+                    source_statistics[
+                        "WEBULL"
+                    ] = (
+                        webull
+                        .scanner_statistics_from_daily_history(
+                            daily_history=(
+                                webull_history
+                            ),
+                            date_str=date_str,
+                            lookback_days=30,
+                        )
+                    )
+
+                except Exception as error:
+                    print(
+                        f"{date_str} Webull research "
+                        f"failed: {error}"
+                    )
+
+            for source, statistics in (
+                source_statistics.items()
+            ):
+                stats_by_symbol = {
+                    row.symbol: row
+                    for row in statistics
+                }
+
+                model_rankings = (
+                    rank_scanner_models(
+                        statistics,
+                        current_symbols=(
+                            self.scanner.current_symbols
+                        ),
+                        rules=self.scanner.rules,
+                    )
+                )
+
+                for model, rankings in (
+                    model_rankings.items()
+                ):
+                    frequency_key = (
+                        source,
+                        model,
+                    )
+
+                    frequencies.setdefault(
+                        frequency_key,
+                        Counter(),
+                    )
+
+                    selected_symbols = [
+                        row.symbol
+                        for row in rankings
+                        if row.selected
+                    ]
+
+                    for symbol in selected_symbols:
+                        frequencies[
+                            frequency_key
+                        ][symbol] += 1
+
+                    print(
+                        f"  {source:<6} "
+                        f"{model:<21} "
+                        + (
+                            ", ".join(
+                                selected_symbols
+                            )
+                            if selected_symbols
+                            else "NO ELIGIBLE CANDIDATES"
+                        )
+                    )
+
+                    for ranking in rankings:
+                        stats = stats_by_symbol[
+                            ranking.symbol
+                        ]
+
+                        output_rows.append(
+                            {
+                                "date": date_str,
+                                "source": source,
+                                "model": model,
+                                "rank": ranking.rank,
+                                "selected": (
+                                    "YES"
+                                    if ranking.selected
+                                    else "NO"
+                                ),
+                                "symbol": (
+                                    ranking.symbol
+                                ),
+                                "score": (
+                                    ranking.score
+                                ),
+                                "valid_bars": (
+                                    stats.valid_bars
+                                ),
+                                "avg_volume": (
+                                    stats.avg_volume
+                                ),
+                                "avg_price": (
+                                    stats.avg_price
+                                ),
+                                "avg_dollar_volume": (
+                                    stats.avg_volume
+                                    * stats.avg_price
+                                ),
+                                "avg_range": (
+                                    stats.avg_range
+                                ),
+                                "avg_range_pct": (
+                                    stats.avg_range_pct
+                                ),
+                            }
+                        )
+
+        output_dir = (
+            Path(__file__)
+            .resolve()
+            .parents[1]
+            / "runtime"
+            / "research"
+        )
+
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        output_path = (
+            output_dir
+            / (
+                "scanner_research_"
+                f"{start_date_str}_to_"
+                f"{end_date_str}.csv"
+            )
+        )
+
+        fieldnames = [
+            "date",
+            "source",
+            "model",
+            "rank",
+            "selected",
+            "symbol",
+            "score",
+            "valid_bars",
+            "avg_volume",
+            "avg_price",
+            "avg_dollar_volume",
+            "avg_range",
+            "avg_range_pct",
+        ]
+
+        with output_path.open(
+            "w",
+            newline="",
+            encoding="utf-8",
+        ) as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=fieldnames,
+            )
+
+            writer.writeheader()
+            writer.writerows(
+                output_rows
+            )
+
+        print()
+        print(
+            "SCANNER RESEARCH SELECTION FREQUENCY"
+        )
+        print(
+            "------------------------------------"
+        )
+
+        for key in sorted(
+            frequencies
+        ):
+            source, model = key
+
+            most_common = (
+                frequencies[key]
+                .most_common(10)
+            )
+
+            summary = ", ".join(
+                f"{symbol}={count}"
+                for symbol, count
+                in most_common
+            )
+
+            print(
+                f"{source} {model}: "
+                f"{summary or 'NONE'}"
+            )
+
+        print()
+        print(
+            "Research CSV:",
+            output_path,
+        )
+
+        return {
+            "start_date": start_date_str,
+            "end_date": end_date_str,
+            "trading_dates": total_dates,
+            "rows": len(output_rows),
+            "output_path": str(
+                output_path
+            ),
+        }
+
     def refresh_symbols_for_date(
             self,
             date_str: str,

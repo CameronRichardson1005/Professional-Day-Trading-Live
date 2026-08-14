@@ -7,6 +7,7 @@ from webull.data.common.category import Category
 from webull.data.common.timespan import Timespan
 
 from .indicators import calculate_wilder_atr
+from .scanner import StockStats
 
 
 EASTERN = ZoneInfo("America/New_York")
@@ -225,6 +226,222 @@ class WebullStrategyMarketData:
         )
 
         return bars
+
+    def get_daily_history(
+        self,
+        *,
+        symbols_csv: str,
+        count: int = 400,
+    ) -> dict[str, list[dict]]:
+        """
+        Fetch normalized Webull daily OHLCV history.
+
+        This is read-only market data and performs no broker action.
+        """
+        if count < 1:
+            raise ValueError(
+                "count must be at least 1."
+            )
+
+        return {
+            symbol: self._history(
+                symbol=symbol,
+                timespan=Timespan.D,
+                count=count,
+            )
+            for symbol in _symbols_from_csv(
+                symbols_csv
+            )
+        }
+
+    @staticmethod
+    def scanner_statistics_from_daily_history(
+        *,
+        daily_history: dict[
+            str,
+            list[dict],
+        ],
+        date_str: str,
+        lookback_days: int = 30,
+    ) -> list[StockStats]:
+        """
+        Reproduce the Alpaca scanner-statistics methodology from
+        already-fetched normalized daily bars.
+
+        Only bars strictly before date_str are eligible.
+        The most recent `lookback_days` valid sessions are used.
+        """
+        if lookback_days < 1:
+            raise ValueError(
+                "lookback_days must be at least 1."
+            )
+
+        trading_date = (
+            datetime.strptime(
+                date_str,
+                "%Y-%m-%d",
+            ).date()
+        )
+
+        statistics = []
+
+        for symbol, bars in (
+            daily_history.items()
+        ):
+            prior = []
+
+            for bar in bars:
+                try:
+                    timestamp = (
+                        datetime.fromisoformat(
+                            str(
+                                bar["t"]
+                            ).replace(
+                                "Z",
+                                "+00:00",
+                            )
+                        )
+                    )
+
+                    volume = float(
+                        bar["v"]
+                    )
+
+                    open_price = float(
+                        bar["o"]
+                    )
+
+                    high = float(
+                        bar["h"]
+                    )
+
+                    low = float(
+                        bar["l"]
+                    )
+
+                    close = float(
+                        bar["c"]
+                    )
+
+                except (
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                ):
+                    continue
+
+                if timestamp.date() >= trading_date:
+                    continue
+
+                if volume < 0:
+                    continue
+
+                if min(
+                    open_price,
+                    high,
+                    low,
+                    close,
+                ) <= 0:
+                    continue
+
+                if high < low:
+                    continue
+
+                prior.append(
+                    (
+                        timestamp,
+                        volume,
+                        close,
+                        high - low,
+                    )
+                )
+
+            prior.sort(
+                key=lambda row: row[0]
+            )
+
+            selected = prior[
+                -lookback_days:
+            ]
+
+            if not selected:
+                continue
+
+            bar_count = len(
+                selected
+            )
+
+            avg_volume = sum(
+                row[1]
+                for row in selected
+            ) / bar_count
+
+            avg_price = sum(
+                row[2]
+                for row in selected
+            ) / bar_count
+
+            avg_range = sum(
+                row[3]
+                for row in selected
+            ) / bar_count
+
+            avg_range_pct = (
+                (
+                    avg_range
+                    / avg_price
+                )
+                * 100.0
+                if avg_price
+                else 0.0
+            )
+
+            statistics.append(
+                StockStats(
+                    symbol=symbol,
+                    valid_bars=bar_count,
+                    avg_volume=avg_volume,
+                    avg_price=avg_price,
+                    avg_range=avg_range,
+                    avg_range_pct=(
+                        avg_range_pct
+                    ),
+                )
+            )
+
+        return statistics
+
+    def get_scanner_statistics(
+        self,
+        *,
+        symbols_csv: str,
+        date_str: str,
+        lookback_days: int = 30,
+        feed: str | None = None,
+    ) -> list[StockStats]:
+        """
+        Webull implementation of scanner statistics.
+
+        The method intentionally mirrors Alpaca's 30-valid-session
+        scanner methodology for research comparisons.
+        """
+        del feed
+
+        history = self.get_daily_history(
+            symbols_csv=symbols_csv,
+            count=max(
+                120,
+                lookback_days * 4,
+            ),
+        )
+
+        return (
+            self.scanner_statistics_from_daily_history(
+                daily_history=history,
+                date_str=date_str,
+                lookback_days=lookback_days,
+            )
+        )
 
     def get_opening_15min_bars(
         self,

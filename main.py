@@ -11,6 +11,7 @@ from trading_bot.utils import setup_logging
 AVAILABLE_MODES = (
     "market-day",
     "backfill",
+    "scanner-research",
     "test",
     "smoke",
     "preflight",
@@ -89,7 +90,21 @@ def main() -> int:
         # -----------------------------------------
         # Local connection / validation modes
         # -----------------------------------------
-        if mode == "test":
+        if mode == "scanner-research":
+            if len(sys.argv) != 4:
+                print(
+                    "Usage: python main.py "
+                    "scanner-research "
+                    "START_DATE END_DATE"
+                )
+                return 2
+
+            bot.run_scanner_research(
+                sys.argv[2],
+                sys.argv[3],
+            )
+
+        elif mode == "test":
             bot.run()
 
         elif mode == "smoke":

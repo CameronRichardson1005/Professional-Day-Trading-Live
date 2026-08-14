@@ -7,7 +7,11 @@ from typing import Iterable
 
 from .models import Stock
 from .quick_flip_strategy import QuickFlipSignal
-from .scanner import StockStats
+from .scanner import (
+    ScannerRules,
+    StockScanner,
+    StockStats,
+)
 
 
 DOLLAR_VOLUME_SCALE = 1_000_000.0
@@ -280,3 +284,117 @@ def quick_flip_opportunity(
             tp2_reward / atr
         ),
     )
+
+
+@dataclass(frozen=True)
+class ScannerModelSelection:
+    model: str
+    symbol: str
+    rank: int
+    selected: bool
+    score: float
+
+
+def rank_scanner_models(
+        statistics: Iterable[StockStats],
+        *,
+        current_symbols: Iterable[str],
+        rules: ScannerRules | None = None,
+) -> dict[str, list[ScannerModelSelection]]:
+    """
+    Rank the same eligible universe under several research models.
+
+    V1 is the current production control.
+    V2 replaces share-volume liquidity with dollar liquidity.
+    V3 uses equal-weight cross-sectional standardized factors.
+
+    All eligible candidates are returned so downstream research can
+    examine rank/return relationships and information coefficients.
+    The `selected` flag indicates whether the candidate falls inside
+    the scanner's normal candidate limit.
+    """
+    rows = list(statistics)
+
+    scanner = StockScanner(
+        current_symbols=list(current_symbols),
+        rules=rules,
+    )
+
+    current_set = set(
+        scanner.current_symbols
+    )
+
+    eligible = [
+        row
+        for row in rows
+        if (
+            row.symbol not in current_set
+            and scanner.is_eligible(row)
+        )
+    ]
+
+    factor_rows = {
+        row.symbol: row
+        for row in build_factor_scores(
+            eligible
+        )
+    }
+
+    score_functions = {
+        "V1_LOG_VOLUME": (
+            lambda row: log_volume_score(row)
+        ),
+        "V2_LOG_DOLLAR_VOLUME": (
+            lambda row: log_dollar_volume_score(row)
+        ),
+        "V3_Z_FACTOR": (
+            lambda row: (
+                factor_rows[
+                    row.symbol
+                ].equal_weight_factor_score
+            )
+        ),
+    }
+
+    results: dict[
+        str,
+        list[ScannerModelSelection],
+    ] = {}
+
+    for model, score_function in (
+        score_functions.items()
+    ):
+        scored = [
+            (
+                row,
+                float(score_function(row)),
+            )
+            for row in eligible
+        ]
+
+        scored.sort(
+            key=lambda pair: (
+                -pair[1],
+                pair[0].symbol,
+            )
+        )
+
+        results[model] = [
+            ScannerModelSelection(
+                model=model,
+                symbol=row.symbol,
+                rank=rank,
+                selected=(
+                    rank
+                    <= scanner.rules.candidate_limit
+                ),
+                score=score,
+            )
+            for rank, (row, score)
+            in enumerate(
+                scored,
+                start=1,
+            )
+        ]
+
+    return results
