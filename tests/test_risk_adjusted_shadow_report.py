@@ -180,6 +180,130 @@ def test_quick_flip_history_contains_mfe_mae():
     )
 
 
+def test_quick_flip_history_contains_tail_mae_75():
+    rows = [
+        row(
+            day="2026-08-10",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-1.0",
+        ),
+        row(
+            day="2026-08-11",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-2.0",
+        ),
+        row(
+            day="2026-08-12",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-3.0",
+        ),
+        row(
+            day="2026-08-13",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-5.0",
+        ),
+    ]
+
+    context = (
+        build_strategy_performance_context(
+            rows=rows,
+            model="v1",
+            trading_date="2026-08-14",
+            strict=True,
+        )
+    )
+
+    # Absolute MAE magnitudes are [1, 2, 3, 5].
+    # Linear 75th percentile = 3.5.
+    assert (
+        context.quick_flip
+        .tail_mae_75_pct
+        == 3.5
+    )
+
+    # Existing reporting average is preserved.
+    assert (
+        context.quick_flip
+        .average_mae_pct
+        == -2.75
+    )
+
+
+def test_quick_flip_tail_mae_excludes_current_and_future_days():
+    rows = [
+        row(
+            day="2026-08-11",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-1.0",
+        ),
+        row(
+            day="2026-08-12",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-2.0",
+        ),
+        row(
+            day="2026-08-13",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="1.0",
+            mfe="3.0",
+            mae="-3.0",
+        ),
+        # Must not enter the 2026-08-14 decision.
+        row(
+            day="2026-08-14",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="-50.0",
+            mfe="1.0",
+            mae="-50.0",
+        ),
+        row(
+            day="2026-08-15",
+            quick_flip_signal="INVEST",
+            quick_flip_filled="YES",
+            quick_flip_return="-90.0",
+            mfe="1.0",
+            mae="-90.0",
+        ),
+    ]
+
+    context = (
+        build_strategy_performance_context(
+            rows=rows,
+            model="v1",
+            trading_date="2026-08-14",
+            strict=True,
+        )
+    )
+
+    # Prior magnitudes only: [1, 2, 3].
+    # 75th percentile = 2.5.
+    assert (
+        context.quick_flip
+        .tail_mae_75_pct
+        == 2.5
+    )
+
+
 def test_report_compares_equal_and_v2_weights():
     report = (
         build_daily_shadow_allocation_report(

@@ -56,6 +56,11 @@ class PerformanceSummary:
     annualized_sortino: float | None
     max_drawdown_pct: float
 
+    # Positive magnitude of the 75th percentile of historical
+    # Quick Flip adverse excursion. None for Manipulation or
+    # when no Quick Flip MAE observations exist.
+    tail_mae_75_pct: float | None = None
+
 
 def _float(
     value: object,
@@ -86,6 +91,70 @@ def _mean(
 
     return statistics.fmean(
         values
+    )
+
+
+def _percentile(
+    values: list[float],
+    percentile: float,
+) -> float | None:
+    """
+    Linear-interpolated empirical percentile.
+
+    The caller supplies positive magnitudes when measuring
+    adverse excursion, so larger values mean larger downside.
+    """
+    if not values:
+        return None
+
+    if not 0.0 <= percentile <= 1.0:
+        raise ValueError(
+            "percentile must be between 0 and 1."
+        )
+
+    ordered = sorted(
+        float(value)
+        for value in values
+    )
+
+    if len(ordered) == 1:
+        return ordered[0]
+
+    position = (
+        (len(ordered) - 1)
+        * percentile
+    )
+
+    lower_index = int(
+        math.floor(position)
+    )
+
+    upper_index = int(
+        math.ceil(position)
+    )
+
+    lower = ordered[
+        lower_index
+    ]
+
+    upper = ordered[
+        upper_index
+    ]
+
+    if lower_index == upper_index:
+        return lower
+
+    fraction = (
+        position
+        - lower_index
+    )
+
+    return (
+        lower
+        + (
+            upper - lower
+        )
+        * fraction
     )
 
 
@@ -610,6 +679,16 @@ def summarize(
         average_mae_pct=(
             _mean(
                 mae_values
+            )
+        ),
+        tail_mae_75_pct=(
+            _percentile(
+                [
+                    abs(value)
+                    for value
+                    in mae_values
+                ],
+                0.75,
             )
         ),
         profit_factor=(

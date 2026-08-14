@@ -23,6 +23,7 @@ def history(
     filled=30,
     mfe=5.0,
     mae=-2.0,
+    tail_mae=None,
 ):
     return SimpleNamespace(
         expectancy_per_filled_trade_pct=(
@@ -32,6 +33,15 @@ def history(
         filled_trades=filled,
         average_mfe_pct=mfe,
         average_mae_pct=mae,
+        tail_mae_75_pct=(
+            (
+                abs(float(mae))
+                if mae is not None
+                else None
+            )
+            if tail_mae is None
+            else tail_mae
+        ),
     )
 
 
@@ -146,6 +156,28 @@ def test_quick_flip_uses_absolute_mae_for_risk():
     )
 
 
+def test_quick_flip_uses_tail_mae_instead_of_average_mae():
+    opportunity = (
+        build_quick_flip_opportunity(
+            quick_flip_signal(
+                entry=10.0,
+                tp1=10.5,
+                tp2=11.0,
+            ),
+            performance=history(
+                mfe=6.0,
+                mae=-1.5,
+                tail_mae=3.75,
+            ),
+        )
+    )
+
+    assert (
+        opportunity.expected_risk_pct
+        == 3.75
+    )
+
+
 def test_quick_flip_reward_is_capped_at_tp2():
     opportunity = (
         build_quick_flip_opportunity(
@@ -191,12 +223,13 @@ def test_quick_flip_uses_mfe_when_below_tp2():
 def test_quick_flip_requires_mae_history():
     with pytest.raises(
         ValueError,
-        match="no historical Quick Flip MAE",
+        match="no historical Quick Flip tail MAE",
     ):
         build_quick_flip_opportunity(
             quick_flip_signal(),
             performance=history(
                 mae=None,
+                tail_mae=None,
             ),
         )
 

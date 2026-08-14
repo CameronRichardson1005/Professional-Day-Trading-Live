@@ -396,8 +396,9 @@ def build_live_opportunities(
     Convert today's live strategy state into V2 shadow
     opportunities.
 
-    Quick Flip remains stop-loss free. Its downside input comes
-    from historical MAE in the supplied performance context.
+    Quick Flip remains stop-loss free. Its downside ranking input
+    comes from historical 75th-percentile absolute MAE in the
+    supplied performance context.
     """
     opportunities: list[
         RiskAdjustedOpportunity

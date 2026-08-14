@@ -177,7 +177,9 @@ def build_quick_flip_opportunity(
     Quick Flip intentionally has no automatic stop loss.
 
     Risk is therefore empirical:
-        absolute historical average MAE.
+        historical 75th-percentile absolute MAE.
+
+    This is a conservative ranking-risk estimate, not a stop.
 
     Expected reward is also empirical:
         historical average MFE, capped at today's TP2 upside.
@@ -229,10 +231,10 @@ def build_quick_flip_opportunity(
         )
     )
 
-    average_mae_pct = _optional_float(
+    tail_mae_75_pct = _optional_float(
         getattr(
             performance,
-            "average_mae_pct",
+            "tail_mae_75_pct",
             None,
         )
     )
@@ -243,10 +245,10 @@ def build_quick_flip_opportunity(
             "Quick Flip MFE."
         )
 
-    if average_mae_pct is None:
+    if tail_mae_75_pct is None:
         raise ValueError(
             f"{signal.symbol} has no historical "
-            "Quick Flip MAE."
+            "Quick Flip tail MAE."
         )
 
     empirical_reward_pct = max(
@@ -255,7 +257,7 @@ def build_quick_flip_opportunity(
     )
 
     empirical_risk_pct = abs(
-        float(average_mae_pct)
+        float(tail_mae_75_pct)
     )
 
     if empirical_reward_pct <= 0:
