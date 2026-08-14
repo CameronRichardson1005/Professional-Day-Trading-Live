@@ -76,7 +76,7 @@ def test_publish_writes_invest_then_previews_then_orders():
         lambda: events.append("initialise")
     )
     bot.prepare_webull_previews = (
-        lambda: events.append("previews") or []
+        lambda **kwargs: events.append("previews") or []
     )
 
     bot.publish_current_strategy_results(

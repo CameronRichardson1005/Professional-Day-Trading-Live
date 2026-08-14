@@ -7,6 +7,9 @@ from .capital_allocator import (
 from .capital_reservation_store import (
     DailyCapitalReservationStore,
 )
+from .live_committed_allocator import (
+    build_live_quick_flip_allocation_plan,
+)
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -61,6 +64,11 @@ class QuickFlipWebullPreviewService:
         self.client = client
         self.snapshot_client = snapshot_client
         self.preview_store = preview_store
+
+        # Populated for each causal live Quick Flip event.
+        self.committed_policy_funded = False
+        self.committed_policy_decision_reason = None
+        self.committed_policy_considered_symbols = set()
 
     @staticmethod
     def _remaining_allowance(
@@ -175,6 +183,8 @@ class QuickFlipWebullPreviewService:
     def prepare_previews(
         self,
         results: dict[str, Any],
+        *,
+        trading_date: str | None = None,
     ) -> list[dict[str, Any]]:
         if not WEBULL_PREVIEW_ENABLED:
             self._persist_ready_previews([])
@@ -305,6 +315,48 @@ class QuickFlipWebullPreviewService:
             )
         )
 
+        live_policy_plan = None
+        live_policy_allocations = {}
+        live_policy_weights = {}
+
+        self.committed_policy_funded = False
+        self.committed_policy_decision_reason = None
+        self.committed_policy_considered_symbols = set()
+
+        if trading_date is not None:
+            live_policy_plan = (
+                build_live_quick_flip_allocation_plan(
+                    results=results,
+                    trading_date=trading_date,
+                    deployable_pool=(
+                        allocation_plan.deployable_pool
+                    ),
+                )
+            )
+
+            self.committed_policy_decision_reason = (
+                live_policy_plan.decision_reason
+            )
+
+            for item in live_policy_plan.allocations:
+                self.committed_policy_considered_symbols.add(
+                    item.symbol
+                )
+
+                live_policy_allocations[
+                    item.symbol
+                ] = item.recommended_allocation
+
+                live_policy_weights[
+                    item.symbol
+                ] = item.allocation_weight
+
+            self.committed_policy_funded = any(
+                item.allocation_weight > 0
+                for item
+                in live_policy_plan.allocations
+            )
+
         preview_safety_ceiling = max(
             0.0,
             preview_exposure_ceiling
@@ -329,10 +381,29 @@ class QuickFlipWebullPreviewService:
                     )
                 )
 
+                if live_policy_plan is None:
+                    policy_budget = (
+                        allocation_plan
+                        .per_candidate_budget
+                    )
+                else:
+                    policy_budget = (
+                        live_policy_allocations.get(
+                            symbol,
+                            0.0,
+                        )
+                    )
+
+                    if policy_budget <= 0:
+                        continue
+
                 recommended_allocation = min(
                     remaining_allowance,
-                    allocation_plan.per_candidate_budget,
+                    policy_budget,
                 )
+
+                if recommended_allocation <= 0:
+                    continue
 
                 request = (
                     build_quick_flip_preview_request(
@@ -459,7 +530,16 @@ class QuickFlipWebullPreviewService:
                         allocation_plan.deployable_pool
                     ),
                     "allocationWeight": (
-                        allocation_plan.allocation_weight
+                        (
+                            live_policy_weights.get(
+                                symbol,
+                                0.0,
+                            )
+                            if live_policy_plan
+                            is not None
+                            else allocation_plan
+                            .allocation_weight
+                        )
                     ),
                     "recommendedAllocation": (
                         round(

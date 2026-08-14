@@ -132,15 +132,30 @@ def find_latest_realized_master_before(
     if not candidates:
         return None
 
-    candidates.sort(
+    latest_end_date = max(
+        item[0]
+        for item in candidates
+    )
+
+    latest_candidates = [
+        item
+        for item in candidates
+        if item[0] == latest_end_date
+    ]
+
+    # Multiple research artifacts can legitimately end on the
+    # same trading date (for example, a one-day diagnostic and
+    # the full historical master). Production scoring must use
+    # the longest available causal history, so prefer the
+    # earliest start date for the latest valid end date.
+    latest_candidates.sort(
         key=lambda item: (
-            item[0],
             item[1],
             str(item[2]),
         )
     )
 
-    return candidates[-1][2]
+    return latest_candidates[0][2]
 
 
 def load_live_shadow_history(

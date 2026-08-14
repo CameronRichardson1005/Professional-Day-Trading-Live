@@ -11,6 +11,9 @@ from .capital_allocator import (
 from .capital_reservation_store import (
     DailyCapitalReservationStore,
 )
+from .live_committed_allocator import (
+    build_live_manipulation_allocation_plan,
+)
 from .config import (
     WEBULL_CAPITAL_DEPLOYMENT_FRACTION,
     WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS,
@@ -55,6 +58,11 @@ class WebullPreviewService:
         self.client = client
         self.snapshot_client = snapshot_client
         self.preview_store = preview_store
+
+        # Populated only when the committed production allocation
+        # policy is requested for a live trading date.
+        self.committed_policy_funded = False
+        self.committed_policy_decision_reason = None
 
     @staticmethod
     def _failure(
@@ -168,6 +176,8 @@ class WebullPreviewService:
     def prepare_previews(
         self,
         stocks: dict[str, Stock],
+        *,
+        trading_date: str | None = None,
     ) -> list[dict[str, Any]]:
         if not WEBULL_PREVIEW_ENABLED:
             self._persist_ready_previews([])
@@ -276,6 +286,43 @@ class WebullPreviewService:
             )
         )
 
+        live_policy_plan = None
+        live_policy_allocations = {}
+        live_policy_weights = {}
+
+        self.committed_policy_funded = False
+        self.committed_policy_decision_reason = None
+
+        if trading_date is not None:
+            live_policy_plan = (
+                build_live_manipulation_allocation_plan(
+                    stocks=stocks,
+                    trading_date=trading_date,
+                    deployable_pool=(
+                        allocation_plan.deployable_pool
+                    ),
+                )
+            )
+
+            self.committed_policy_decision_reason = (
+                live_policy_plan.decision_reason
+            )
+
+            for item in live_policy_plan.allocations:
+                live_policy_allocations[
+                    item.symbol
+                ] = item.recommended_allocation
+
+                live_policy_weights[
+                    item.symbol
+                ] = item.allocation_weight
+
+            self.committed_policy_funded = any(
+                item.allocation_weight > 0
+                for item
+                in live_policy_plan.allocations
+            )
+
         preview_safety_ceiling = max(
             0.0,
             preview_exposure_ceiling
@@ -298,10 +345,31 @@ class WebullPreviewService:
                     )
                 )
 
+                if live_policy_plan is None:
+                    policy_budget = (
+                        allocation_plan
+                        .per_candidate_budget
+                    )
+                else:
+                    policy_budget = (
+                        live_policy_allocations.get(
+                            stock.symbol,
+                            0.0,
+                        )
+                    )
+
+                    # The committed policy intentionally gives
+                    # non-funded candidates zero preview capital.
+                    if policy_budget <= 0:
+                        continue
+
                 recommended_allocation = min(
                     remaining_allowance,
-                    allocation_plan.per_candidate_budget,
+                    policy_budget,
                 )
+
+                if recommended_allocation <= 0:
+                    continue
 
                 request = client.build_request(
                     stock,
@@ -405,7 +473,16 @@ class WebullPreviewService:
                         allocation_plan.deployable_pool
                     ),
                     "allocationWeight": (
-                        allocation_plan.allocation_weight
+                        (
+                            live_policy_weights.get(
+                                stock.symbol,
+                                0.0,
+                            )
+                            if live_policy_plan
+                            is not None
+                            else allocation_plan
+                            .allocation_weight
+                        )
                     ),
                     "recommendedAllocation": (
                         round(

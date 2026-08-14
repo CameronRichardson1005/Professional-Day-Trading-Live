@@ -703,3 +703,93 @@ def test_live_payload_preserves_v2_and_adds_causal_dominance_shadow(
             "SOUN",
         )
     ] == 6000.0
+
+
+def test_latest_history_prefers_longest_master_with_same_end_date(
+    tmp_path,
+):
+    from trading_bot.risk_adjusted_live_shadow import (
+        find_latest_realized_master_before,
+    )
+
+    full = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-03-02_to_2026-08-13.csv"
+    )
+
+    one_day = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-08-13_to_2026-08-13.csv"
+    )
+
+    older = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-03-02_to_2026-08-12.csv"
+    )
+
+    for item in (
+        full,
+        one_day,
+        older,
+    ):
+        item.write_text(
+            "date,symbol\n",
+            encoding="utf-8",
+        )
+
+    selected = (
+        find_latest_realized_master_before(
+            trading_date="2026-08-14",
+            research_dir=tmp_path,
+        )
+    )
+
+    assert selected == full
+
+
+def test_latest_history_excludes_current_and_future_data(
+    tmp_path,
+):
+    from trading_bot.risk_adjusted_live_shadow import (
+        find_latest_realized_master_before,
+    )
+
+    valid = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-03-02_to_2026-08-13.csv"
+    )
+
+    current = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-03-02_to_2026-08-14.csv"
+    )
+
+    future = (
+        tmp_path
+        / "scanner_realized_master_"
+        "2026-03-02_to_2026-08-17.csv"
+    )
+
+    for item in (
+        valid,
+        current,
+        future,
+    ):
+        item.write_text(
+            "date,symbol\n",
+            encoding="utf-8",
+        )
+
+    selected = (
+        find_latest_realized_master_before(
+            trading_date="2026-08-14",
+            research_dir=tmp_path,
+        )
+    )
+
+    assert selected == valid

@@ -117,6 +117,11 @@ class TradingBot:
         self.quick_flip_results = {}
         self.quick_flip_status = {}
 
+        # Causal production capital-policy state.
+        # These flags affect preview allocation only.
+        self.live_committed_policy_manipulation_funded = False
+        self.live_committed_policy_quick_flip_funded = False
+
         self.scanner = StockScanner(
             current_symbols=TICKERS,
         )
@@ -3002,6 +3007,11 @@ class TradingBot:
 
         self.quick_flip_webull_previews = []
 
+        # The QF monitor starts with no QF capital event funded.
+        # The Manipulation-funded flag is deliberately preserved
+        # from the 09:45 decision.
+        self.live_committed_policy_quick_flip_funded = False
+
         preview_service = (
             preview_service_factory()
             if preview_service_factory is not None
@@ -3052,13 +3062,103 @@ class TradingBot:
             if not new_results:
                 return []
 
-            try:
-                previews = (
-                    preview_service
-                    .prepare_previews(
-                        new_results
-                    )
+            manipulation_already_funded = bool(
+                getattr(
+                    self,
+                    "live_committed_policy_manipulation_funded",
+                    False,
                 )
+            )
+
+            quick_flip_already_funded = bool(
+                getattr(
+                    self,
+                    "live_committed_policy_quick_flip_funded",
+                    False,
+                )
+            )
+
+            if (
+                manipulation_already_funded
+                or quick_flip_already_funded
+            ):
+                # Mark these setups handled so they are not
+                # reconsidered every minute. Raw strategy results
+                # remain preserved; only capital previews are
+                # suppressed by the causal allocation sequence.
+                previewed_signal_keys.update(
+                    new_keys.values()
+                )
+
+                if manipulation_already_funded:
+                    reason = (
+                        "09:45 Manipulation event already "
+                        "consumed the deployable pool"
+                    )
+                else:
+                    reason = (
+                        "an earlier Quick Flip confirmation "
+                        "group already consumed the pool"
+                    )
+
+                print(
+                    "Quick Flip capital preview skipped · "
+                    + reason
+                )
+
+                return []
+
+            try:
+                try:
+                    previews = (
+                        preview_service
+                        .prepare_previews(
+                            new_results,
+                            trading_date=date_str,
+                        )
+                    )
+                except TypeError as error:
+                    if "trading_date" not in str(error):
+                        raise
+
+                    previews = (
+                        preview_service
+                        .prepare_previews(
+                            new_results
+                        )
+                    )
+
+                for considered_symbol in getattr(
+                    preview_service,
+                    "committed_policy_considered_symbols",
+                    set(),
+                ):
+                    if considered_symbol in new_keys:
+                        previewed_signal_keys.add(
+                            new_keys[
+                                considered_symbol
+                            ]
+                        )
+
+                if bool(
+                    getattr(
+                        preview_service,
+                        "committed_policy_funded",
+                        False,
+                    )
+                ):
+                    self.live_committed_policy_quick_flip_funded = True
+
+                    print(
+                        "Live capital policy · Quick Flip · "
+                        + str(
+                            getattr(
+                                preview_service,
+                                "committed_policy_decision_reason",
+                                "FUNDED",
+                            )
+                        )
+                    )
             except Exception as error:
                 print(
                     "WARNING: Quick Flip Webull "
@@ -5033,6 +5133,7 @@ class TradingBot:
 
     def prepare_webull_previews(
             self,
+            date_str: str | None = None,
     ) -> list[dict]:
         """
         Build Webull previews for current INVEST signals.
@@ -5045,11 +5146,49 @@ class TradingBot:
 
         try:
             preview_service = WebullPreviewService()
-            preview_results = (
-                preview_service.prepare_previews(
-                    stocks=self.stocks,
+            try:
+                preview_results = (
+                    preview_service.prepare_previews(
+                        stocks=self.stocks,
+                        trading_date=date_str,
+                    )
                 )
+            except TypeError as error:
+                # Preserve compatibility with injected legacy
+                # test doubles that do not yet expose the optional
+                # trading_date keyword.
+                if "trading_date" not in str(error):
+                    raise
+
+                preview_results = (
+                    preview_service.prepare_previews(
+                        stocks=self.stocks,
+                    )
+                )
+
+            self.live_committed_policy_manipulation_funded = (
+                bool(
+                    getattr(
+                        preview_service,
+                        "committed_policy_funded",
+                        False,
+                    )
+                )
+                if date_str is not None
+                else False
             )
+
+            if date_str is not None:
+                print(
+                    "Live capital policy · Manipulation · "
+                    + str(
+                        getattr(
+                            preview_service,
+                            "committed_policy_decision_reason",
+                            "NO_FUNDED_OPPORTUNITY",
+                        )
+                    )
+                )
 
             if not preview_results:
                 print(
@@ -5139,7 +5278,9 @@ class TradingBot:
                 f"Error: {error}"
             )
 
-        preview_results = self.prepare_webull_previews()
+        preview_results = self.prepare_webull_previews(
+            date_str=date_str,
+        )
 
         if interactive_paper_confirmation:
             self.process_webull_paper_confirmations(
