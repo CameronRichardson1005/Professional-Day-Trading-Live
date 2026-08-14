@@ -10,16 +10,21 @@ ENV_FILE = PROJECT_ROOT / ".env"
 load_dotenv(dotenv_path=ENV_FILE, override=False)
 
 
-API_KEY = os.getenv("ALPACA_API_KEY")
-API_SECRET = os.getenv("ALPACA_API_SECRET")
+API_KEY = os.getenv(
+    "ALPACA_API_KEY",
+    "",
+).strip()
 
-if not API_KEY:
-    raise RuntimeError("ALPACA_API_KEY was not found in the .env file.")
+API_SECRET = os.getenv(
+    "ALPACA_API_SECRET",
+    "",
+).strip()
 
-if not API_SECRET:
-    raise RuntimeError("ALPACA_API_SECRET was not found in the .env file.")
-
-
+# Alpaca is an optional fallback/research provider.
+#
+# Missing Alpaca credentials must not prevent the Webull-primary
+# production bot from starting. AlpacaClient validates credentials
+# only when an Alpaca network request is actually attempted.
 BASE_URL = "https://data.alpaca.markets/v2/stocks/bars"
 
 ALPACA_DATA_FEED = os.getenv(

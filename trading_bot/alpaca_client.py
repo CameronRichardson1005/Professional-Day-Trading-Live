@@ -27,11 +27,33 @@ class AlpacaClient:
             "APCA-API-SECRET-KEY": API_SECRET,
         }
 
+    @property
+    def configured(self) -> bool:
+        return bool(
+            API_KEY
+            and API_SECRET
+        )
+
+    def _require_credentials(
+            self,
+    ) -> None:
+        if self.configured:
+            return
+
+        raise RuntimeError(
+            "Alpaca market data is not configured. "
+            "Set ALPACA_API_KEY and ALPACA_API_SECRET "
+            "to use the optional Alpaca fallback or "
+            "Alpaca research source."
+        )
+
     def _request(
             self,
             params: dict[str, Any],
             label: str,
     ) -> dict[str, Any]:
+        self._require_credentials()
+
         response = call_with_retries(
             requests.get,
             self.base_url,
