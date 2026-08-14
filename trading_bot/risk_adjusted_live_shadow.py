@@ -11,6 +11,10 @@ from typing import Any
 from .risk_adjusted_allocator import (
     RiskAdjustedOpportunity,
 )
+from .risk_adjusted_dominance_shadow import (
+    build_dominance_equal_weight_plan,
+    dominance_equal_plan_to_dict,
+)
 from .risk_adjusted_shadow_report import (
     StrategyPerformanceContext,
     build_daily_shadow_allocation_report,
@@ -567,6 +571,345 @@ def add_previewed_quick_flip_opportunities(
     return result
 
 
+def _quick_flip_confirmation_times(
+    *,
+    quick_flip_results: dict,
+    quick_flip_previews: list[dict],
+) -> dict[str, str]:
+    """
+    Recover causal Quick Flip confirmation times by symbol.
+
+    Prefer the live strategy result. Fall back to PREVIEW READY
+    metadata so an earlier confirmed setup remains sequenced even
+    if the final in-memory result has changed.
+    """
+    result: dict[
+        str,
+        str,
+    ] = {}
+
+    for symbol, item in (
+        quick_flip_results.items()
+    ):
+        if item is None:
+            continue
+
+        signal = getattr(
+            item,
+            "signal",
+            None,
+        )
+
+        if signal is None:
+            continue
+
+        confirmation = getattr(
+            signal,
+            "confirmation_time",
+            None,
+        )
+
+        if confirmation is None:
+            continue
+
+        if hasattr(
+            confirmation,
+            "isoformat",
+        ):
+            confirmation = (
+                confirmation.isoformat()
+            )
+
+        result[
+            str(symbol).upper()
+        ] = str(
+            confirmation
+        )
+
+    for preview in (
+        quick_flip_previews
+    ):
+        if (
+            not isinstance(
+                preview,
+                dict,
+            )
+            or preview.get(
+                "status"
+            )
+            != "PREVIEW READY"
+        ):
+            continue
+
+        symbol = str(
+            preview.get(
+                "symbol",
+                "",
+            )
+        ).upper()
+
+        confirmation = preview.get(
+            "confirmationTime"
+        )
+
+        if (
+            not symbol
+            or not confirmation
+        ):
+            continue
+
+        result.setdefault(
+            symbol,
+            str(
+                confirmation
+            ),
+        )
+
+    return result
+
+
+def build_causal_dominance_equal_weight_shadow(
+    *,
+    opportunities: list[
+        RiskAdjustedOpportunity
+    ],
+    quick_flip_results: dict,
+    quick_flip_previews: list[dict],
+    deployable_pool: float,
+    production_allocations: dict[
+        tuple[str, str],
+        float,
+    ] | None = None,
+) -> dict:
+    """
+    Replay the researched live decision sequence.
+
+    Sequence:
+      1. Manipulation decision at 09:45 ET.
+      2. Zero capital is pre-reserved for Quick Flip.
+      3. Only genuinely retained cash can reach later Quick Flip
+         confirmation events.
+      4. Each event uses dominance selection; otherwise equal
+         weighting.
+
+    This is observation only. It cannot alter production sizing.
+    """
+    original_pool = round(
+        max(
+            0.0,
+            float(
+                deployable_pool
+            ),
+        ),
+        2,
+    )
+
+    remaining = original_pool
+
+    production = (
+        production_allocations
+        or {}
+    )
+
+    events = []
+
+    manipulation = [
+        item
+        for item in opportunities
+        if item.strategy
+        == "MANIPULATION"
+    ]
+
+    quick_flip = [
+        item
+        for item in opportunities
+        if item.strategy
+        == "QUICK_FLIP"
+    ]
+
+    confirmation_times = (
+        _quick_flip_confirmation_times(
+            quick_flip_results=(
+                quick_flip_results
+            ),
+            quick_flip_previews=(
+                quick_flip_previews
+            ),
+        )
+    )
+
+    def event_payload(
+        event_time,
+        plan,
+    ):
+        payload = (
+            dominance_equal_plan_to_dict(
+                plan
+            )
+        )
+
+        payload[
+            "eventTime"
+        ] = event_time
+
+        for allocation in payload[
+            "allocations"
+        ]:
+            key = (
+                allocation[
+                    "strategy"
+                ],
+                allocation[
+                    "symbol"
+                ],
+            )
+
+            allocation[
+                "productionRecommendedAllocation"
+            ] = round(
+                float(
+                    production.get(
+                        key,
+                        0.0,
+                    )
+                ),
+                2,
+            )
+
+        return payload
+
+    if (
+        manipulation
+        and remaining > 0
+    ):
+        plan = (
+            build_dominance_equal_weight_plan(
+                manipulation,
+                deployable_pool=(
+                    remaining
+                ),
+            )
+        )
+
+        events.append(
+            event_payload(
+                "09:45_ET",
+                plan,
+            )
+        )
+
+        funded = any(
+            item.allocation_weight > 0
+            for item
+            in plan.allocations
+        )
+
+        if funded:
+            # Zero-reserve research policy:
+            # a funded 09:45 decision consumes the available pool.
+            remaining = 0.0
+
+    groups: dict[
+        str,
+        list[
+            RiskAdjustedOpportunity
+        ],
+    ] = {}
+
+    unsequenced = []
+
+    for item in quick_flip:
+        confirmation = (
+            confirmation_times.get(
+                item.symbol
+            )
+        )
+
+        if not confirmation:
+            unsequenced.append(
+                item.symbol
+            )
+            continue
+
+        groups.setdefault(
+            confirmation,
+            [],
+        ).append(
+            item
+        )
+
+    if remaining > 0:
+        for event_time in sorted(
+            groups
+        ):
+            plan = (
+                build_dominance_equal_weight_plan(
+                    groups[
+                        event_time
+                    ],
+                    deployable_pool=(
+                        remaining
+                    ),
+                )
+            )
+
+            events.append(
+                event_payload(
+                    event_time,
+                    plan,
+                )
+            )
+
+            funded = any(
+                item.allocation_weight
+                > 0
+                for item
+                in plan.allocations
+            )
+
+            if funded:
+                remaining = 0.0
+                break
+
+    return {
+        "method": (
+            "CAUSAL_DOMINANCE_EQUAL_WEIGHT_SHADOW_V1"
+        ),
+        "shadowOnly": True,
+        "productionSizingChanged": False,
+        "sequence": (
+            "MANIPULATION_09:45_THEN_"
+            "QUICK_FLIP_CONFIRMATION"
+        ),
+        "quickFlipReserveFraction": 0.0,
+        "quickFlipAutomaticStopLoss": False,
+        "deployablePool": (
+            original_pool
+        ),
+        "allocated": round(
+            original_pool
+            - remaining,
+            2,
+        ),
+        "cashRetained": round(
+            remaining,
+            2,
+        ),
+        "quickFlipCandidatesObserved": sorted({
+            item.symbol
+            for item in quick_flip
+        }),
+        "unsequencedQuickFlipSymbols": (
+            sorted(
+                set(
+                    unsequenced
+                )
+            )
+        ),
+        "events": events,
+    }
+
+
 def build_live_shadow_payload(
     *,
     trading_date: date | str,
@@ -611,6 +954,24 @@ def build_live_shadow_payload(
             stocks=stocks,
             quick_flip_previews=(
                 quick_flip_previews
+            ),
+        )
+    )
+
+    dominance_equal_shadow = (
+        build_causal_dominance_equal_weight_shadow(
+            opportunities=opportunities,
+            quick_flip_results=(
+                quick_flip_results
+            ),
+            quick_flip_previews=(
+                quick_flip_previews
+            ),
+            deployable_pool=(
+                deployable_pool
+            ),
+            production_allocations=(
+                production
             ),
         )
     )
@@ -715,6 +1076,9 @@ def build_live_shadow_payload(
             history.performance
             .quick_flip
             .filled_trades
+        ),
+        "dominanceEqualWeightShadow": (
+            dominance_equal_shadow
         ),
         "productionSizingChanged": False,
         "shadowOnly": True,

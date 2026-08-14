@@ -2,7 +2,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from trading_bot.models import Stock
+from trading_bot.risk_adjusted_allocator import (
+    RiskAdjustedOpportunity,
+)
 from trading_bot.risk_adjusted_live_shadow import (
+    build_causal_dominance_equal_weight_shadow,
     current_production_allocations,
     derive_original_daily_pool,
     find_latest_realized_master_before,
@@ -311,3 +315,391 @@ def test_safe_bot_shadow_wrapper_calls_writer():
     assert events == [
         "2026-08-14"
     ]
+
+
+
+def test_causal_dominance_shadow_manipulation_consumes_zero_reserve_pool():
+    opportunities = [
+        RiskAdjustedOpportunity(
+            symbol="OPEN",
+            strategy="MANIPULATION",
+            expected_reward_pct=2.0,
+            expected_risk_pct=1.0,
+        ),
+        RiskAdjustedOpportunity(
+            symbol="SOUN",
+            strategy="MANIPULATION",
+            expected_reward_pct=1.5,
+            expected_risk_pct=1.0,
+        ),
+        RiskAdjustedOpportunity(
+            symbol="RIVN",
+            strategy="QUICK_FLIP",
+            expected_reward_pct=1.0,
+            expected_risk_pct=1.0,
+        ),
+    ]
+
+    payload = (
+        build_causal_dominance_equal_weight_shadow(
+            opportunities=opportunities,
+            quick_flip_results={},
+            quick_flip_previews=[
+                {
+                    "status": "PREVIEW READY",
+                    "symbol": "RIVN",
+                    "confirmationTime": (
+                        "2026-08-14T14:00:00+00:00"
+                    ),
+                }
+            ],
+            deployable_pool=9000.0,
+            production_allocations={},
+        )
+    )
+
+    assert (
+        payload[
+            "quickFlipReserveFraction"
+        ]
+        == 0.0
+    )
+
+    assert len(
+        payload["events"]
+    ) == 1
+
+    event = payload[
+        "events"
+    ][0]
+
+    assert (
+        event["eventTime"]
+        == "09:45_ET"
+    )
+
+    assert (
+        event["decisionReason"]
+        == "EQUAL_WEIGHT_PORTFOLIO"
+    )
+
+    funded = [
+        item
+        for item
+        in event["allocations"]
+        if item["allocationWeight"]
+        > 0
+    ]
+
+    assert len(funded) == 2
+
+    assert {
+        item[
+            "recommendedAllocation"
+        ]
+        for item in funded
+    } == {
+        4500.0,
+    }
+
+    assert payload["allocated"] == 9000.0
+    assert payload["cashRetained"] == 0.0
+
+    assert (
+        payload[
+            "quickFlipCandidatesObserved"
+        ]
+        == ["RIVN"]
+    )
+
+
+def test_causal_dominance_shadow_uses_first_qf_confirmation_when_no_manipulation():
+    opportunities = [
+        RiskAdjustedOpportunity(
+            symbol="EARLY",
+            strategy="QUICK_FLIP",
+            expected_reward_pct=1.0,
+            expected_risk_pct=1.0,
+        ),
+        RiskAdjustedOpportunity(
+            symbol="LATE",
+            strategy="QUICK_FLIP",
+            expected_reward_pct=2.0,
+            expected_risk_pct=1.0,
+        ),
+    ]
+
+    payload = (
+        build_causal_dominance_equal_weight_shadow(
+            opportunities=opportunities,
+            quick_flip_results={},
+            quick_flip_previews=[
+                {
+                    "status": "PREVIEW READY",
+                    "symbol": "LATE",
+                    "confirmationTime": (
+                        "2026-08-14T14:15:00+00:00"
+                    ),
+                },
+                {
+                    "status": "PREVIEW READY",
+                    "symbol": "EARLY",
+                    "confirmationTime": (
+                        "2026-08-14T14:00:00+00:00"
+                    ),
+                },
+            ],
+            deployable_pool=5000.0,
+            production_allocations={},
+        )
+    )
+
+    assert len(
+        payload["events"]
+    ) == 1
+
+    event = payload[
+        "events"
+    ][0]
+
+    assert (
+        event["eventTime"]
+        == "2026-08-14T14:00:00+00:00"
+    )
+
+    funded = [
+        item
+        for item
+        in event["allocations"]
+        if item["allocationWeight"]
+        > 0
+    ]
+
+    assert len(funded) == 1
+    assert funded[0]["symbol"] == "EARLY"
+
+    assert (
+        funded[0][
+            "recommendedAllocation"
+        ]
+        == 5000.0
+    )
+
+    assert payload["cashRetained"] == 0.0
+
+
+
+def test_live_payload_preserves_v2_and_adds_causal_dominance_shadow(
+    monkeypatch,
+):
+    import trading_bot.risk_adjusted_live_shadow as live_module
+
+    from trading_bot.risk_adjusted_live_shadow import (
+        build_live_shadow_payload,
+    )
+
+    opportunities = [
+        RiskAdjustedOpportunity(
+            symbol="OPEN",
+            strategy="MANIPULATION",
+            expected_reward_pct=2.0,
+            expected_risk_pct=1.0,
+        ),
+        RiskAdjustedOpportunity(
+            symbol="SOUN",
+            strategy="MANIPULATION",
+            expected_reward_pct=1.5,
+            expected_risk_pct=1.0,
+        ),
+    ]
+
+    history = SimpleNamespace(
+        source_path=Path(
+            "runtime/research/"
+            "scanner_realized_master_"
+            "2026-03-02_to_2026-08-13.csv"
+        ),
+        source_start_date="2026-03-02",
+        source_end_date="2026-08-13",
+        performance=SimpleNamespace(
+            strict=True,
+            manipulation=SimpleNamespace(
+                filled_trades=100,
+            ),
+            quick_flip=SimpleNamespace(
+                filled_trades=30,
+            ),
+        ),
+    )
+
+    monkeypatch.setattr(
+        live_module,
+        "build_live_opportunities",
+        lambda **kwargs: list(
+            opportunities
+        ),
+    )
+
+    monkeypatch.setattr(
+        live_module,
+        "add_previewed_quick_flip_opportunities",
+        lambda **kwargs: list(
+            kwargs["opportunities"]
+        ),
+    )
+
+    monkeypatch.setattr(
+        live_module,
+        "current_production_allocations",
+        lambda **kwargs: {
+            (
+                "MANIPULATION",
+                "OPEN",
+            ): 3000.0,
+            (
+                "MANIPULATION",
+                "SOUN",
+            ): 6000.0,
+        },
+    )
+
+    payload = build_live_shadow_payload(
+        trading_date="2026-08-14",
+        history=history,
+        stocks={},
+        quick_flip_results={},
+        quick_flip_previews=[],
+        deployable_pool=9000.0,
+    )
+
+    # Existing V2 shadow output remains present.
+    assert (
+        "comparisons"
+        in payload
+    )
+
+    assert (
+        "decisionReason"
+        in payload
+    )
+
+    assert (
+        payload[
+            "productionSizingChanged"
+        ]
+        is False
+    )
+
+    assert (
+        payload["shadowOnly"]
+        is True
+    )
+
+    # New policy is additional observation-only output.
+    assert (
+        "dominanceEqualWeightShadow"
+        in payload
+    )
+
+    shadow = payload[
+        "dominanceEqualWeightShadow"
+    ]
+
+    assert (
+        shadow["method"]
+        == (
+            "CAUSAL_DOMINANCE_"
+            "EQUAL_WEIGHT_SHADOW_V1"
+        )
+    )
+
+    assert (
+        shadow[
+            "productionSizingChanged"
+        ]
+        is False
+    )
+
+    assert (
+        shadow["shadowOnly"]
+        is True
+    )
+
+    assert (
+        shadow[
+            "quickFlipReserveFraction"
+        ]
+        == 0.0
+    )
+
+    assert (
+        shadow[
+            "quickFlipAutomaticStopLoss"
+        ]
+        is False
+    )
+
+    assert len(
+        shadow["events"]
+    ) == 1
+
+    event = shadow[
+        "events"
+    ][0]
+
+    assert (
+        event["eventTime"]
+        == "09:45_ET"
+    )
+
+    assert (
+        event["decisionReason"]
+        == "EQUAL_WEIGHT_PORTFOLIO"
+    )
+
+    funded = [
+        item
+        for item
+        in event["allocations"]
+        if item[
+            "allocationWeight"
+        ]
+        > 0
+    ]
+
+    assert len(
+        funded
+    ) == 2
+
+    assert {
+        item[
+            "recommendedAllocation"
+        ]
+        for item in funded
+    } == {
+        4500.0,
+    }
+
+    production = {
+        (
+            item["strategy"],
+            item["symbol"],
+        ): item[
+            "productionRecommendedAllocation"
+        ]
+        for item in funded
+    }
+
+    assert production[
+        (
+            "MANIPULATION",
+            "OPEN",
+        )
+    ] == 3000.0
+
+    assert production[
+        (
+            "MANIPULATION",
+            "SOUN",
+        )
+    ] == 6000.0
