@@ -634,6 +634,13 @@ class WebullStrategyMarketData:
         Return Webull native 09:30 ET 15-minute opening bars
         within the requested inclusive date range.
 
+        Historical requests are anchored explicitly so older
+        sessions do not depend on Webull's latest-bar window.
+
+        Requests are split into 30-calendar-day chunks. Even a
+        month of regular-session 15-minute bars remains safely
+        below Webull's 1,200-bar request maximum.
+
         This is read-only historical market data.
         """
         del feed
@@ -659,62 +666,108 @@ class WebullStrategyMarketData:
         for symbol in _symbols_from_csv(
             symbols_csv
         ):
-            # 1000 is already exercised by the Webull
-            # reliability path in this project and is ample
-            # for the selling-pressure lookback requirement.
-            bars = self._history(
-                symbol=symbol,
-                timespan=Timespan.M15,
-                count=1000,
-            )
+            opening_by_date = {}
 
-            opening_bars = []
+            chunk_start = start
 
-            for bar in bars:
-                try:
-                    timestamp = (
-                        datetime
-                        .fromisoformat(
-                            str(
-                                bar["t"]
-                            ).replace(
-                                "Z",
-                                "+00:00",
+            while chunk_start <= end:
+                chunk_end = min(
+                    chunk_start
+                    + timedelta(days=29),
+                    end,
+                )
+
+                start_timestamp = datetime(
+                    chunk_start.year,
+                    chunk_start.month,
+                    chunk_start.day,
+                    0,
+                    0,
+                    0,
+                    tzinfo=EASTERN,
+                ).astimezone(
+                    UTC
+                )
+
+                end_timestamp = datetime(
+                    chunk_end.year,
+                    chunk_end.month,
+                    chunk_end.day,
+                    23,
+                    59,
+                    59,
+                    tzinfo=EASTERN,
+                ).astimezone(
+                    UTC
+                )
+
+                bars = self._history(
+                    symbol=symbol,
+                    timespan=Timespan.M15,
+                    count=1200,
+                    start_time=int(
+                        start_timestamp.timestamp()
+                        * 1000
+                    ),
+                    end_time=int(
+                        end_timestamp.timestamp()
+                        * 1000
+                    ),
+                )
+
+                for bar in bars:
+                    try:
+                        timestamp = (
+                            datetime
+                            .fromisoformat(
+                                str(
+                                    bar["t"]
+                                ).replace(
+                                    "Z",
+                                    "+00:00",
+                                )
+                            )
+                            .astimezone(
+                                EASTERN
                             )
                         )
-                        .astimezone(
-                            EASTERN
-                        )
-                    )
 
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-                    continue
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        continue
 
-                if not (
-                    start
-                    <= timestamp.date()
-                    <= end
-                ):
-                    continue
+                    if not (
+                        start
+                        <= timestamp.date()
+                        <= end
+                    ):
+                        continue
 
-                if (
-                    timestamp.hour == 9
-                    and timestamp.minute == 30
-                ):
-                    opening_bars.append(
-                        bar
-                    )
+                    if (
+                        timestamp.hour == 9
+                        and timestamp.minute == 30
+                    ):
+                        opening_by_date[
+                            timestamp
+                            .date()
+                            .isoformat()
+                        ] = bar
 
-            opening_bars.sort(
-                key=lambda bar: bar["t"]
-            )
+                chunk_start = (
+                    chunk_end
+                    + timedelta(days=1)
+                )
 
-            results[symbol] = (
-                opening_bars
-            )
+            results[symbol] = [
+                opening_by_date[
+                    date_str
+                ]
+                for date_str in sorted(
+                    opening_by_date
+                )
+            ]
 
         return results
 

@@ -499,3 +499,72 @@ def test_historical_five_minute_request_is_anchored():
         calls[0]["count"]
         == "500"
     )
+
+
+def test_historical_opening_bars_use_anchored_chunks():
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    class AnchoredMarketData:
+        def get_history_bar(
+            self,
+            symbol,
+            category,
+            timespan,
+            count="200",
+            real_time_required=None,
+            trading_sessions=None,
+            start_time=None,
+            end_time=None,
+        ):
+            calls.append({
+                "symbol": symbol,
+                "count": count,
+                "start_time": start_time,
+                "end_time": end_time,
+            })
+
+            return Response()
+
+    adapter = WebullStrategyMarketData(
+        market_data=AnchoredMarketData()
+    )
+
+    result = (
+        adapter
+        .get_historical_opening_15min_bars(
+            symbols_csv="TEST",
+            start_date="2026-03-02",
+            end_date="2026-04-05",
+        )
+    )
+
+    assert result == {
+        "TEST": [],
+    }
+
+    # 35 calendar days:
+    # Mar 2-Mar 31
+    # Apr 1-Apr 5
+    assert len(calls) == 2
+
+    assert all(
+        call["count"] == "1200"
+        for call in calls
+    )
+
+    assert all(
+        call["start_time"] is not None
+        for call in calls
+    )
+
+    assert all(
+        call["end_time"] is not None
+        for call in calls
+    )
