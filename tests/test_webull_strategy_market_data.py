@@ -31,6 +31,8 @@ class FakeMarketData:
         category,
         timespan,
         count="200",
+        start_time=None,
+        end_time=None,
     ):
         self.calls.append({
             "symbol": symbol,
@@ -370,3 +372,130 @@ def test_historical_opening_15min_bars_filters_date_and_clock(
 
     assert len(calls) == 1
     assert calls[0]["symbol"] == "TEST"
+
+
+
+def test_historical_one_minute_request_is_anchored():
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    class AnchoredMarketData:
+        def get_history_bar(
+            self,
+            symbol,
+            category,
+            timespan,
+            count="200",
+            real_time_required=None,
+            trading_sessions=None,
+            start_time=None,
+            end_time=None,
+        ):
+            calls.append({
+                "symbol": symbol,
+                "count": count,
+                "start_time": start_time,
+                "end_time": end_time,
+            })
+
+            return Response()
+
+    adapter = WebullStrategyMarketData(
+        market_data=AnchoredMarketData()
+    )
+
+    adapter.get_historical_1min_bars(
+        symbols_csv="TEST",
+        start_iso=(
+            "2026-03-02T14:30:00Z"
+        ),
+        end_iso=(
+            "2026-03-02T21:00:00Z"
+        ),
+    )
+
+    assert len(calls) == 1
+
+    assert (
+        calls[0]["start_time"]
+        == 1772461800000
+    )
+
+    assert (
+        calls[0]["end_time"]
+        == 1772485200000
+    )
+
+    assert (
+        calls[0]["count"]
+        == "1200"
+    )
+
+
+def test_historical_five_minute_request_is_anchored():
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return []
+
+    class AnchoredMarketData:
+        def get_history_bar(
+            self,
+            symbol,
+            category,
+            timespan,
+            count="200",
+            real_time_required=None,
+            trading_sessions=None,
+            start_time=None,
+            end_time=None,
+        ):
+            calls.append({
+                "symbol": symbol,
+                "count": count,
+                "start_time": start_time,
+                "end_time": end_time,
+            })
+
+            return Response()
+
+    adapter = WebullStrategyMarketData(
+        market_data=AnchoredMarketData()
+    )
+
+    adapter.get_historical_5min_bars(
+        symbols_csv="TEST",
+        start_iso=(
+            "2026-03-02T14:30:00Z"
+        ),
+        end_iso=(
+            "2026-03-02T21:00:00Z"
+        ),
+    )
+
+    assert len(calls) == 1
+
+    assert (
+        calls[0]["start_time"]
+        == 1772461800000
+    )
+
+    assert (
+        calls[0]["end_time"]
+        == 1772485200000
+    )
+
+    assert (
+        calls[0]["count"]
+        == "500"
+    )

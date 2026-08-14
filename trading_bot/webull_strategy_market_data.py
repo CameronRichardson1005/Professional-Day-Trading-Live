@@ -169,14 +169,36 @@ class WebullStrategyMarketData:
         symbol: str,
         timespan,
         count: int,
+        start_time: int | None = None,
+        end_time: int | None = None,
     ) -> list[dict]:
+        if count < 1 or count > 1200:
+            raise ValueError(
+                "Webull history count must be between "
+                "1 and 1200."
+            )
+
+        request_kwargs = {
+            "count": str(count),
+        }
+
+        if start_time is not None:
+            request_kwargs[
+                "start_time"
+            ] = int(start_time)
+
+        if end_time is not None:
+            request_kwargs[
+                "end_time"
+            ] = int(end_time)
+
         response = (
             self.market_data
             .get_history_bar(
                 symbol,
                 Category.US_STOCK,
                 timespan,
-                count=str(count),
+                **request_kwargs,
             )
         )
 
@@ -907,10 +929,22 @@ class WebullStrategyMarketData:
         for symbol in _symbols_from_csv(
             symbols_csv
         ):
+            start_ms = int(
+                start.timestamp()
+                * 1000
+            )
+
+            end_ms = int(
+                end.timestamp()
+                * 1000
+            )
+
             bars = self._history(
                 symbol=symbol,
                 timespan=timespan,
                 count=count,
+                start_time=start_ms,
+                end_time=end_ms,
             )
 
             selected = []
@@ -980,5 +1014,5 @@ class WebullStrategyMarketData:
             start_iso=start_iso,
             end_iso=end_iso,
             timespan=Timespan.M1,
-            count=1000,
+            count=1200,
         )
