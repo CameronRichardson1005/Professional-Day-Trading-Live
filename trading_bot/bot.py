@@ -4896,6 +4896,335 @@ class TradingBot:
         )
 
 
+    def _record_v1_top2_forward_validation(
+            self,
+            *,
+            date_str: str,
+            output_path=None,
+    ):
+        """
+        Record the frozen V1 Top-2 Manipulation experiment.
+
+        Shadow research only:
+        - Webull scanner observations only;
+        - dates must be after the 2026-08-13 freeze;
+        - reuses the exact production V1 scanner statistics;
+        - evaluates the completed regular session;
+        - never changes production selections or signals;
+        - never creates previews or broker/paper orders.
+        """
+        from datetime import date as date_type
+        from pathlib import Path
+
+        from .scanner_realized_performance import (
+            evaluate_realized_strategy_observation,
+        )
+        from .v1_top2_forward_validation import (
+            HYPOTHESIS_FREEZE_DATE,
+            build_forward_rows,
+            compare_top2_top3,
+            load_forward_rows,
+            write_forward_rows,
+        )
+
+        session = date_type.fromisoformat(
+            date_str
+        )
+
+        if session <= HYPOTHESIS_FREEZE_DATE:
+            raise ValueError(
+                "Forward validation requires "
+                "a trading date after "
+                "2026-08-13."
+            )
+
+        if (
+            getattr(
+                self,
+                "scanner_data_source",
+                None,
+            )
+            != "WEBULL"
+        ):
+            raise RuntimeError(
+                "Forward validation requires "
+                "the production scanner source "
+                "to be WEBULL."
+            )
+
+        statistics = getattr(
+            self,
+            "scanner_statistics",
+            None,
+        )
+
+        if not statistics:
+            raise RuntimeError(
+                "Forward validation scanner "
+                "statistics are unavailable."
+            )
+
+        reliability = getattr(
+            self,
+            "symbol_reliability",
+            None,
+        )
+
+        ranked_candidates = (
+            self.scanner.select_candidates(
+                statistics
+            )
+        )
+
+        if reliability is not None:
+            production_symbols = set(
+                self.scanner.select_symbols(
+                    statistics,
+                    reliability=reliability,
+                )
+            )
+
+            ranked_candidates = [
+                stats
+                for stats in ranked_candidates
+                if (
+                    stats.symbol
+                    in production_symbols
+                )
+            ]
+
+        if not ranked_candidates:
+            print(
+                "V1 Top-2 forward validation: "
+                "no production candidate "
+                "observations to record."
+            )
+            return None
+
+        candidate_symbols = [
+            stats.symbol
+            for stats in ranked_candidates
+        ]
+
+        missing_stocks = [
+            symbol
+            for symbol in candidate_symbols
+            if symbol not in self.stocks
+        ]
+
+        if missing_stocks:
+            raise RuntimeError(
+                "Forward validation production "
+                "stock state missing for: "
+                + ", ".join(
+                    missing_stocks
+                )
+            )
+
+        eastern = ZoneInfo(
+            "America/New_York"
+        )
+
+        utc = ZoneInfo(
+            "UTC"
+        )
+
+        session_start = datetime.combine(
+            session,
+            time(
+                hour=9,
+                minute=30,
+            ),
+            tzinfo=eastern,
+        ).astimezone(
+            utc
+        )
+
+        session_end = datetime.combine(
+            session,
+            time(
+                hour=16,
+                minute=0,
+            ),
+            tzinfo=eastern,
+        ).astimezone(
+            utc
+        )
+
+        market_data = (
+            self._get_webull_strategy_market_data()
+        )
+
+        bars_by_symbol = (
+            market_data.get_historical_1min_bars(
+                symbols_csv=",".join(
+                    candidate_symbols
+                ),
+                start_iso=(
+                    session_start.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    )
+                ),
+                end_iso=(
+                    session_end.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ"
+                    )
+                ),
+            )
+        )
+
+        realized_by_symbol = {}
+
+        for symbol in candidate_symbols:
+            stock = self.stocks[
+                symbol
+            ]
+
+            opening_bar = getattr(
+                stock,
+                "opening_bar",
+                None,
+            )
+
+            atr_14 = getattr(
+                stock,
+                "atr",
+                None,
+            )
+
+            if opening_bar is None:
+                raise RuntimeError(
+                    "Forward validation opening "
+                    f"bar unavailable for {symbol}."
+                )
+
+            if atr_14 is None:
+                raise RuntimeError(
+                    "Forward validation ATR14 "
+                    f"unavailable for {symbol}."
+                )
+
+            minute_bars = list(
+                bars_by_symbol.get(
+                    symbol,
+                    [],
+                )
+            )
+
+            if not minute_bars:
+                raise RuntimeError(
+                    "Forward validation minute "
+                    f"bars unavailable for {symbol}."
+                )
+
+            realized_by_symbol[
+                symbol
+            ] = (
+                evaluate_realized_strategy_observation(
+                    session=session,
+                    symbol=symbol,
+                    opening_bar=opening_bar,
+                    atr_14=float(
+                        atr_14
+                    ),
+                    minute_bars=minute_bars,
+                )
+            )
+
+        forward_rows = (
+            build_forward_rows(
+                session=session,
+                scanner=self.scanner,
+                statistics=statistics,
+                realized_by_symbol=(
+                    realized_by_symbol
+                ),
+                reliability=reliability,
+            )
+        )
+
+        if output_path is None:
+            output_path = (
+                Path(__file__)
+                .resolve()
+                .parents[1]
+                / "runtime"
+                / "research"
+                / (
+                    "v1_top2_manipulation_"
+                    "forward.csv"
+                )
+            )
+        else:
+            output_path = Path(
+                output_path
+            )
+
+        write_forward_rows(
+            path=output_path,
+            rows=forward_rows,
+        )
+
+        all_rows = load_forward_rows(
+            output_path
+        )
+
+        comparison = compare_top2_top3(
+            rows=all_rows,
+            strict=False,
+        )
+
+        strict_comparison = (
+            compare_top2_top3(
+                rows=all_rows,
+                strict=True,
+            )
+        )
+
+        print()
+        print(
+            "V1 Top-2 Manipulation "
+            "forward shadow recorded."
+        )
+
+        print(
+            "Forward ledger:",
+            output_path,
+        )
+
+        print(
+            "Forward observations:",
+            len(all_rows),
+        )
+
+        print(
+            "Top-2 expectancy/selection: "
+            f"{comparison.top2.expectancy_per_selection_pct:.3f}%"
+        )
+
+        print(
+            "Top-3 expectancy/selection: "
+            f"{comparison.top3.expectancy_per_selection_pct:.3f}%"
+        )
+
+        print(
+            "Top-2 minus Top-3: "
+            f"{comparison.expectancy_difference_pct:+.3f}%"
+        )
+
+        print(
+            "Strict Top-2 minus Top-3: "
+            f"{strict_comparison.expectancy_difference_pct:+.3f}%"
+        )
+
+        print(
+            "Research only. Production "
+            "V1 Top-3 is unchanged."
+        )
+
+        return comparison
+
+
     def _run_production_eod_pnl(
             self,
             date_str: str,
@@ -4950,6 +5279,20 @@ class TradingBot:
                 f"End-of-day P&L error: {error}"
             )
             return
+        finally:
+            try:
+                self._record_v1_top2_forward_validation(
+                    date_str=date_str,
+                )
+            except Exception as error:
+                print(
+                    "WARNING: V1 Top-2 forward "
+                    "shadow research failed."
+                )
+                print(
+                    "Forward-validation error: "
+                    f"{error}"
+                )
 
         print(
             "End-of-day Google Sheets P&L "
