@@ -92,7 +92,16 @@ def test_before_open_waits_then_runs_full_workflow(
                 7,
                 27,
                 9,
-                0,
+                29,
+                40,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026,
+                7,
+                27,
+                9,
+                30,
                 tzinfo=EASTERN,
             ),
             datetime(
@@ -118,7 +127,7 @@ def test_before_open_waits_then_runs_full_workflow(
     bot.run_production()
 
     assert events == [
-        "sleep:1800.0",
+        "sleep:20.0",
         "tracker",
         "sleep:22785.0",
         "pnl:2026-07-27",
@@ -352,3 +361,67 @@ def test_tracking_failure_prevents_strategy_write(
         match="Tracker failed",
     ):
         bot.run_production()
+
+
+def test_pre_open_wait_recovers_when_clock_jumps_past_open(
+    monkeypatch,
+):
+    """
+    Simulate macOS sleeping across market open.
+
+    Production requests only the remaining short wait to
+    09:30, but wall-clock time has advanced to 09:35 when
+    the process resumes. The tracker must start immediately.
+    """
+    events = []
+    bot = make_bot(events)
+
+    install_clock(
+        monkeypatch,
+        [
+            datetime(
+                2026,
+                7,
+                27,
+                9,
+                29,
+                50,
+                tzinfo=EASTERN,
+            ),
+            # Simulate the Mac waking five minutes late.
+            datetime(
+                2026,
+                7,
+                27,
+                9,
+                35,
+                tzinfo=EASTERN,
+            ),
+            datetime(
+                2026,
+                7,
+                27,
+                9,
+                45,
+                15,
+                tzinfo=EASTERN,
+            ),
+        ],
+    )
+
+    monkeypatch.setattr(
+        bot_module.time_module,
+        "sleep",
+        lambda seconds: events.append(
+            f"sleep:{seconds}"
+        ),
+    )
+
+    bot.run_production()
+
+    assert events == [
+        "sleep:10.0",
+        "tracker",
+        "sleep:22785.0",
+        "pnl:2026-07-27",
+    ]

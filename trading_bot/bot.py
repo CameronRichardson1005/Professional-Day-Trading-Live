@@ -5553,6 +5553,33 @@ class TradingBot:
         print("===================================")
         print(f"Trading date: {date_str}")
 
+        started_before_open = now < market_open
+
+        if started_before_open:
+            print(
+                "Waiting for market open at "
+                "09:30 New York time..."
+            )
+
+            while now < market_open:
+                remaining_seconds = (
+                    market_open - now
+                ).total_seconds()
+
+                sleep_seconds = min(
+                    30.0,
+                    remaining_seconds,
+                )
+
+                time_module.sleep(sleep_seconds)
+
+                # Re-read wall-clock time after every short
+                # wait. This makes production startup resilient
+                # when macOS sleeps or suspends the process.
+                now = datetime.now(eastern)
+
+        # Re-evaluate the clock after the pre-market wait.
+        # A sleeping Mac may wake after 09:45 or even 11:00.
         if now >= production_cutoff:
             print()
             print(
@@ -5573,19 +5600,7 @@ class TradingBot:
             print("Production workflow completed.")
             return
 
-        if now < market_open:
-            wait_seconds = (
-                market_open - now
-            ).total_seconds()
-
-            print(
-                "Waiting for market open at "
-                "09:30 New York time..."
-            )
-
-            time_module.sleep(wait_seconds)
-
-        elif now >= strategy_time:
+        if now >= strategy_time:
             print()
             print(
                 "The opening tracking window has ended."
@@ -5610,6 +5625,10 @@ class TradingBot:
             print("Production workflow completed.")
             return
 
+        if started_before_open:
+            print()
+            print("Market open reached.")
+            print("Starting the tracker now...")
         else:
             print()
             print(
