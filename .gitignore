@@ -52,3 +52,6 @@ webull_data_streaming_sdk.log
 
 # Webull forward-test market data
 data/webull_10s/
+
+# Generated quantitative research outputs
+runtime/research/
