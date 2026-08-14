@@ -209,16 +209,24 @@ def test_multiple_previews_reserve_shared_cap():
         })
 
     assert results[0]["status"] == "PREVIEW READY"
-    assert results[0]["quantity"] == 47
-    assert results[0]["estimatedPositionValue"] == 470.0
-    assert results[0]["projectedExposure"] == 470.0
+    assert results[0]["quantity"] == 23
+    assert results[0]["estimatedPositionValue"] == 230.0
+    assert results[0]["recommendedAllocation"] == 237.5
+    assert results[0]["allocationWeight"] == 0.5
 
-    assert results[1]["status"] == "PREVIEW FAILED"
-    assert results[1]["submitted"] is False
-    assert results[1]["safetyAllowed"] is False
+    assert results[1]["status"] == "PREVIEW READY"
+    assert results[1]["quantity"] == 23
+    assert results[1]["estimatedPositionValue"] == 230.0
+    assert results[1]["recommendedAllocation"] == 237.5
+    assert results[1]["allocationWeight"] == 0.5
+
     assert (
-        "insufficient remaining account exposure allowance"
-        in results[1]["error"]
+        results[0]["capitalAllocationMethod"]
+        == "EQUAL_WEIGHT_CASH_SAFE"
+    )
+    assert (
+        results[1]["capitalAllocationMethod"]
+        == "EQUAL_WEIGHT_CASH_SAFE"
     )
 
 

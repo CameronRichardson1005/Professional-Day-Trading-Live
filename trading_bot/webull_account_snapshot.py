@@ -172,4 +172,5 @@ class WebullAccountSnapshotClient:
                 open_buy_order_exposure
             ),
             data_is_current=True,
+            buying_power=balance.buying_power,
         )

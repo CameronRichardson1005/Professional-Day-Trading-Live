@@ -20,6 +20,7 @@ class WebullAccountState:
     position_exposure: float
     open_buy_order_exposure: float
     data_is_current: bool = True
+    buying_power: float | None = None
 
     @property
     def current_total_exposure(self) -> float:

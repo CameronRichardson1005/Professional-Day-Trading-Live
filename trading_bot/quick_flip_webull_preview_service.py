@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from .capital_allocator import (
+    build_equal_weight_capital_plan,
+)
+from .capital_reservation_store import (
+    DailyCapitalReservationStore,
+)
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 from .config import (
+    WEBULL_CAPITAL_DEPLOYMENT_FRACTION,
     WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS,
     WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS,
     WEBULL_PREVIEW_ENABLED,
@@ -242,6 +249,54 @@ class QuickFlipWebullPreviewService:
                 in invest_results
             ]
 
+        capital_store = getattr(
+            self,
+            "capital_reservation_store",
+            None,
+        )
+
+        if (
+            capital_store is None
+            and self.client is None
+            and self.snapshot_client is None
+        ):
+            capital_store = (
+                DailyCapitalReservationStore()
+            )
+
+        reservation_date = None
+        reserved_before_batch = 0.0
+
+        if capital_store is not None:
+            reservation_date = (
+                capital_store.current_trading_date()
+            )
+            reserved_before_batch = (
+                capital_store
+                .total_reserved_exposure(
+                    reservation_date
+                )
+            )
+
+        allocation_plan = (
+            build_equal_weight_capital_plan(
+                working_account,
+                len(invest_results),
+                deployment_fraction=(
+                    WEBULL_CAPITAL_DEPLOYMENT_FRACTION
+                ),
+                operational_cap=(
+                    WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+                ),
+                hard_cap=(
+                    WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
+                ),
+                reserved_recommendation_exposure=(
+                    reserved_before_batch
+                ),
+            )
+        )
+
         previews: list[
             dict[str, Any]
         ] = []
@@ -254,12 +309,17 @@ class QuickFlipWebullPreviewService:
                     )
                 )
 
+                recommended_allocation = min(
+                    remaining_allowance,
+                    allocation_plan.per_candidate_budget,
+                )
+
                 request = (
                     build_quick_flip_preview_request(
                         symbol=symbol,
                         signal=signal,
                         max_position_value=(
-                            remaining_allowance
+                            recommended_allocation
                         ),
                     )
                 )
@@ -363,7 +423,54 @@ class QuickFlipWebullPreviewService:
                     "remainingAllowanceBeforePreview": (
                         remaining_allowance
                     ),
+                    "buyingPower": (
+                        allocation_plan.buying_power
+                    ),
+                    "safeCapitalBase": (
+                        allocation_plan.safe_capital_base
+                    ),
+                    "deployableCapitalPool": (
+                        allocation_plan.deployable_pool
+                    ),
+                    "allocationWeight": (
+                        allocation_plan.allocation_weight
+                    ),
+                    "recommendedAllocation": (
+                        round(
+                            recommended_allocation,
+                            2,
+                        )
+                    ),
+                    "capitalAllocationMethod": (
+                        allocation_plan.method
+                    ),
+                    "reservedCapitalBeforeBatch": (
+                        allocation_plan
+                        .reserved_recommendation_exposure
+                    ),
                 })
+
+                if capital_store is not None:
+                    reservation_suffix = (
+                        confirmation_time
+                        if confirmation_time
+                        else "SIGNAL"
+                    )
+
+                    capital_store.reserve(
+                        date_str=reservation_date,
+                        reservation_id=(
+                            "QUICK_FLIP:"
+                            f"{symbol}:"
+                            f"{reservation_suffix}"
+                        ),
+                        strategy="QUICK_FLIP",
+                        symbol=symbol,
+                        exposure=(
+                            request
+                            .estimated_position_value
+                        ),
+                    )
 
                 previews.append(preview)
 

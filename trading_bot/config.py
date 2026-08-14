@@ -200,13 +200,30 @@ WEBULL_PREVIEW_RISK_DOLLARS = float(
     )
 )
 
-# Preview comparison mode:
-# every qualifying setup is shown as exactly one share so one
-# candidate cannot consume the preview exposure allowance before
-# the user compares the available setups.
+# Capital-allocation preview sizing.
+#
+# Position value, available cash, buying power, risk budget,
+# and account-exposure limits remain the primary constraints.
+# This high share ceiling prevents the previous comparison-only
+# one-share rule from suppressing allocation recommendations.
 #
 # This is preview sizing only and does not enable broker orders.
-WEBULL_PREVIEW_MAX_SHARES = 1
+WEBULL_PREVIEW_MAX_SHARES = int(
+    os.getenv(
+        "WEBULL_PREVIEW_MAX_SHARES",
+        "100000",
+    )
+)
+
+# Fraction of the conservative cash-safe capital base that may
+# be considered for today's recommendations. The existing
+# operational and hard exposure caps still apply independently.
+WEBULL_CAPITAL_DEPLOYMENT_FRACTION = float(
+    os.getenv(
+        "WEBULL_CAPITAL_DEPLOYMENT_FRACTION",
+        "1.0",
+    )
+)
 
 WEBULL_PREVIEW_MAX_POSITION_VALUE = float(
     os.getenv(
@@ -223,6 +240,16 @@ if WEBULL_PREVIEW_RISK_DOLLARS <= 0:
 if WEBULL_PREVIEW_MAX_SHARES <= 0:
     raise RuntimeError(
         "WEBULL_PREVIEW_MAX_SHARES must be positive."
+    )
+
+if not (
+    0
+    < WEBULL_CAPITAL_DEPLOYMENT_FRACTION
+    <= 1
+):
+    raise RuntimeError(
+        "WEBULL_CAPITAL_DEPLOYMENT_FRACTION must be "
+        "greater than 0 and at most 1."
     )
 
 if WEBULL_PREVIEW_MAX_POSITION_VALUE <= 0:

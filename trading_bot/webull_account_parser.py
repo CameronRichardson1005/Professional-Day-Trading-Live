@@ -17,6 +17,7 @@ class ParsedWebullAccount:
 @dataclass(frozen=True)
 class ParsedWebullBalance:
     available_cash: float
+    buying_power: float | None = None
 
 
 @dataclass(frozen=True)
@@ -302,11 +303,29 @@ def parse_account_balance(
         # power, or unsettled cash.
         available_cash = min(cash_candidates)
 
+        raw_buying_power = usd_asset.get(
+            "buying_power",
+            usd_asset.get("buyingPower"),
+        )
+
+        buying_power = (
+            None
+            if raw_buying_power in {None, ""}
+            else round(
+                _number(
+                    raw_buying_power,
+                    label="USD buying power",
+                ),
+                2,
+            )
+        )
+
         return ParsedWebullBalance(
             available_cash=round(
                 available_cash,
                 2,
             ),
+            buying_power=buying_power,
         )
 
     nested = balance.get("data")
@@ -332,11 +351,29 @@ def parse_account_balance(
         label="Available cash",
     )
 
+    raw_buying_power = balance.get(
+        "buying_power",
+        balance.get("buyingPower"),
+    )
+
+    buying_power = (
+        None
+        if raw_buying_power in {None, ""}
+        else round(
+            _number(
+                raw_buying_power,
+                label="Buying power",
+            ),
+            2,
+        )
+    )
+
     return ParsedWebullBalance(
         available_cash=round(
             available_cash,
             2,
         ),
+        buying_power=buying_power,
     )
 
 def parse_positions(

@@ -4,7 +4,14 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
+from .capital_allocator import (
+    build_equal_weight_capital_plan,
+)
+from .capital_reservation_store import (
+    DailyCapitalReservationStore,
+)
 from .config import (
+    WEBULL_CAPITAL_DEPLOYMENT_FRACTION,
     WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS,
     WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS,
     WEBULL_PREVIEW_ENABLED,
@@ -209,6 +216,58 @@ class WebullPreviewService:
                 for stock in invest_stocks
             ]
 
+        capital_store = getattr(
+            self,
+            "capital_reservation_store",
+            None,
+        )
+
+        # Default live service instances use the persistent
+        # day-level ledger. Dependency-injected test/service
+        # instances remain isolated unless a ledger is explicitly
+        # supplied by the caller.
+        if (
+            capital_store is None
+            and self.client is None
+            and self.snapshot_client is None
+        ):
+            capital_store = (
+                DailyCapitalReservationStore()
+            )
+
+        reservation_date = None
+        reserved_before_batch = 0.0
+
+        if capital_store is not None:
+            reservation_date = (
+                capital_store.current_trading_date()
+            )
+            reserved_before_batch = (
+                capital_store
+                .total_reserved_exposure(
+                    reservation_date
+                )
+            )
+
+        allocation_plan = (
+            build_equal_weight_capital_plan(
+                working_account,
+                len(invest_stocks),
+                deployment_fraction=(
+                    WEBULL_CAPITAL_DEPLOYMENT_FRACTION
+                ),
+                operational_cap=(
+                    WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+                ),
+                hard_cap=(
+                    WEBULL_MAX_TOTAL_EXPOSURE_DOLLARS
+                ),
+                reserved_recommendation_exposure=(
+                    reserved_before_batch
+                ),
+            )
+        )
+
         results: list[dict[str, Any]] = []
 
         for stock in invest_stocks:
@@ -219,10 +278,15 @@ class WebullPreviewService:
                     )
                 )
 
+                recommended_allocation = min(
+                    remaining_allowance,
+                    allocation_plan.per_candidate_budget,
+                )
+
                 request = client.build_request(
                     stock,
                     max_position_value=(
-                        remaining_allowance
+                        recommended_allocation
                     ),
                 )
 
@@ -305,7 +369,50 @@ class WebullPreviewService:
                     "remainingAllowanceBeforePreview": (
                         remaining_allowance
                     ),
+                    "buyingPower": (
+                        allocation_plan.buying_power
+                    ),
+                    "safeCapitalBase": (
+                        allocation_plan.safe_capital_base
+                    ),
+                    "deployableCapitalPool": (
+                        allocation_plan.deployable_pool
+                    ),
+                    "allocationWeight": (
+                        allocation_plan.allocation_weight
+                    ),
+                    "recommendedAllocation": (
+                        round(
+                            recommended_allocation,
+                            2,
+                        )
+                    ),
+                    "capitalAllocationMethod": (
+                        allocation_plan.method
+                    ),
+                    "reservedCapitalBeforeBatch": (
+                        allocation_plan
+                        .reserved_recommendation_exposure
+                    ),
                 })
+
+                if capital_store is not None:
+                    capital_store.reserve(
+                        date_str=reservation_date,
+                        reservation_id=(
+                            "MANIPULATION:"
+                            f"{stock.symbol}"
+                        ),
+                        strategy=(
+                            stock.strategy_name
+                            or "MANIPULATION"
+                        ),
+                        symbol=stock.symbol,
+                        exposure=(
+                            request
+                            .estimated_position_value
+                        ),
+                    )
 
                 stock.webull_preview = preview
                 results.append(preview)
