@@ -339,7 +339,7 @@ def test_hammer_requires_following_break():
     assert result.status == "WAITING_FOR_BREAK"
 
 
-def test_engulfing_entry_is_previous_red_high():
+def test_engulfing_entry_waits_for_break_of_engulfing_high():
     strategy = QuickFlipStrategy()
 
     opening = make_candle(
@@ -360,12 +360,20 @@ def test_engulfing_entry_is_previous_red_high():
         9.40,
     )
 
-    green = make_candle(
+    engulfing = make_candle(
         9.35,
-        10.00,
-        9.20,
         9.95,
+        9.20,
+        9.90,
         minute=5,
+    )
+
+    confirmation = make_candle(
+        9.90,
+        9.98,
+        9.85,
+        9.96,
+        minute=10,
     )
 
     result = strategy.evaluate_engulfing_setup(
@@ -373,16 +381,80 @@ def test_engulfing_entry_is_previous_red_high():
         atr_14=1.00,
         opening_range=box,
         previous=red,
-        engulfing=green,
+        engulfing=engulfing,
+        confirmation=confirmation,
     )
 
     assert result.signal == "INVEST"
-    assert result.pattern == "BULLISH_ENGULFING"
 
-    assert result.entry_price == 9.90
+    assert (
+        result.pattern
+        == "BULLISH_ENGULFING"
+    )
+
+    assert result.entry_price == 9.95
+
+    assert (
+        result.confirmation_time
+        == confirmation.timestamp
+    )
 
     assert result.take_profit_1 == 10.00
     assert result.take_profit_2 == 11.50
+
+
+def test_engulfing_requires_following_break():
+    strategy = QuickFlipStrategy()
+
+    opening = make_candle(
+        10.50,
+        11.50,
+        10.00,
+        10.20,
+    )
+
+    box = strategy.build_opening_range(
+        opening
+    )
+
+    red = make_candle(
+        9.80,
+        9.90,
+        9.30,
+        9.40,
+    )
+
+    engulfing = make_candle(
+        9.35,
+        9.95,
+        9.20,
+        9.90,
+        minute=5,
+    )
+
+    no_break = make_candle(
+        9.90,
+        9.95,
+        9.80,
+        9.90,
+        minute=10,
+    )
+
+    result = strategy.evaluate_engulfing_setup(
+        symbol="TEST",
+        atr_14=1.00,
+        opening_range=box,
+        previous=red,
+        engulfing=engulfing,
+        confirmation=no_break,
+    )
+
+    assert result.signal == "NO INVEST"
+
+    assert (
+        result.status
+        == "WAITING_FOR_BREAK"
+    )
 
 
 def test_quick_flip_signal_contains_no_stop_loss():
@@ -406,12 +478,20 @@ def test_quick_flip_signal_contains_no_stop_loss():
         9.40,
     )
 
-    green = make_candle(
+    engulfing = make_candle(
         9.35,
-        10.00,
-        9.20,
         9.95,
+        9.20,
+        9.90,
         minute=5,
+    )
+
+    confirmation = make_candle(
+        9.90,
+        9.98,
+        9.85,
+        9.96,
+        minute=10,
     )
 
     result = strategy.evaluate_engulfing_setup(
@@ -419,13 +499,17 @@ def test_quick_flip_signal_contains_no_stop_loss():
         atr_14=1.00,
         opening_range=box,
         previous=red,
-        engulfing=green,
+        engulfing=engulfing,
+        confirmation=confirmation,
     )
+
+    assert result.signal == "INVEST"
 
     assert not hasattr(
         result,
         "stop_loss",
     )
+
 
 def test_hammer_entry_inside_box_is_rejected():
     strategy = QuickFlipStrategy()
@@ -508,13 +592,26 @@ def test_engulfing_entry_inside_box_is_rejected():
         minute=50,
     )
 
+    confirmation = make_candle(
+        10.15,
+        10.30,
+        10.10,
+        10.25,
+        minute=55,
+    )
+
     result = strategy.evaluate_engulfing_setup(
         symbol="TEST",
         atr_14=1.0,
         opening_range=box,
         previous=previous,
         engulfing=engulfing,
+        confirmation=confirmation,
     )
 
     assert result.signal == "NO INVEST"
-    assert result.status == "ENTRY_INSIDE_BOX"
+
+    assert (
+        result.status
+        == "ENTRY_INSIDE_BOX"
+    )

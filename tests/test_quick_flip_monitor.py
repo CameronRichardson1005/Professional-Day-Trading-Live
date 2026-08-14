@@ -371,9 +371,16 @@ def test_bullish_engulfing_can_invest():
         candle(
             5,
             9.35,
-            10.00,
-            9.20,
             9.95,
+            9.20,
+            9.90,
+        ),
+        candle(
+            10,
+            9.90,
+            9.98,
+            9.85,
+            9.96,
         ),
     ]
 
@@ -392,18 +399,101 @@ def test_bullish_engulfing_can_invest():
         == "BULLISH_ENGULFING"
     )
 
-    # User-defined engulfing entry:
-    # previous red candle high.
-    assert result.signal.entry_price == 9.90
+    assert result.signal.entry_price == 9.95
+
+    assert (
+        result.signal.confirmation_time
+        == candles[2].timestamp
+    )
 
     assert (
         result.signal.take_profit_1
         == 10.00
     )
+
     assert (
         result.signal.take_profit_2
         == 11.50
     )
+
+
+def test_bullish_engulfing_waits_for_following_candle():
+    monitor = QuickFlipMonitor()
+
+    candles = [
+        candle(
+            0,
+            9.80,
+            9.90,
+            9.30,
+            9.40,
+        ),
+        candle(
+            5,
+            9.35,
+            9.95,
+            9.20,
+            9.90,
+        ),
+    ]
+
+    result = monitor.evaluate_five_minute_candles(
+        symbol="TEST",
+        opening_bar=opening_candle(),
+        atr_14=1.00,
+        candles=candles,
+    )
+
+    assert (
+        result.status
+        == "WAITING_FOR_CONFIRMATION"
+    )
+
+    assert result.signal is None
+
+    assert (
+        result.pending_pattern
+        == "BULLISH_ENGULFING"
+    )
+
+
+def test_bullish_engulfing_failed_break_keeps_watching():
+    monitor = QuickFlipMonitor()
+
+    candles = [
+        candle(
+            0,
+            9.80,
+            9.90,
+            9.30,
+            9.40,
+        ),
+        candle(
+            5,
+            9.35,
+            9.95,
+            9.20,
+            9.90,
+        ),
+        candle(
+            10,
+            9.90,
+            9.95,
+            9.80,
+            9.90,
+        ),
+    ]
+
+    result = monitor.evaluate_five_minute_candles(
+        symbol="TEST",
+        opening_bar=opening_candle(),
+        atr_14=1.00,
+        candles=candles,
+    )
+
+    assert result.status == "WATCHING"
+
+    assert result.signal is None
 
 
 def test_one_engulfing_candle_must_trade_outside_box():
@@ -504,9 +594,16 @@ def test_monitor_has_no_stop_loss_behavior():
         candle(
             5,
             9.35,
-            10.00,
-            9.20,
             9.95,
+            9.20,
+            9.90,
+        ),
+        candle(
+            10,
+            9.90,
+            9.98,
+            9.85,
+            9.96,
         ),
     ]
 
@@ -518,6 +615,12 @@ def test_monitor_has_no_stop_loss_behavior():
     )
 
     assert result.signal is not None
+
+    assert (
+        result.signal.signal
+        == "INVEST"
+    )
+
     assert not hasattr(
         result.signal,
         "stop_loss",

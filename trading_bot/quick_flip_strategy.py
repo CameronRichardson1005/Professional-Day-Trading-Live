@@ -416,6 +416,7 @@ class QuickFlipStrategy:
         opening_range: QuickFlipOpeningRange,
         previous: QuickFlipCandle,
         engulfing: QuickFlipCandle,
+        confirmation: QuickFlipCandle,
     ) -> QuickFlipSignal:
         threshold = self.liquidity_threshold(
             atr_14
@@ -478,7 +479,12 @@ class QuickFlipStrategy:
                 threshold=threshold,
             )
 
-        entry_price = previous.high
+        # The engulfing candle must finish before an
+        # entry can be confirmed.
+        #
+        # Entry = break of the engulfing candle high by the
+        # following completed 5-minute candle.
+        entry_price = engulfing.high
 
         if entry_price >= opening_range.low:
             return self._no_invest(
@@ -486,8 +492,23 @@ class QuickFlipStrategy:
                 pattern="BULLISH_ENGULFING",
                 status="ENTRY_INSIDE_BOX",
                 detail=(
-                    "Bullish engulfing entry is not below "
-                    "the opening-range low."
+                    "Bullish engulfing breakout entry is "
+                    "not below the opening-range low."
+                ),
+                opening_range=opening_range,
+                atr_14=atr_14,
+                threshold=threshold,
+                reversal_time=engulfing.timestamp,
+            )
+
+        if confirmation.high <= entry_price:
+            return self._no_invest(
+                symbol=symbol,
+                pattern="BULLISH_ENGULFING",
+                status="WAITING_FOR_BREAK",
+                detail=(
+                    "Following 5-minute candle did not "
+                    "break the engulfing candle high."
                 ),
                 opening_range=opening_range,
                 atr_14=atr_14,
@@ -501,8 +522,8 @@ class QuickFlipStrategy:
             pattern="BULLISH_ENGULFING",
             status="CONFIRMED",
             detail=(
-                "Bullish engulfing reversal confirmed "
-                "outside the lower opening-range box."
+                "Bullish engulfing reversal confirmed by "
+                "a following break of the engulfing high."
             ),
             entry_price=entry_price,
             take_profit_1=opening_range.low,
@@ -513,7 +534,7 @@ class QuickFlipStrategy:
             atr_14=atr_14,
             liquidity_threshold=threshold,
             reversal_time=engulfing.timestamp,
-            confirmation_time=engulfing.timestamp,
+            confirmation_time=confirmation.timestamp,
         )
 
     @staticmethod

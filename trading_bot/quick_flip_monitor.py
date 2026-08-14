@@ -377,7 +377,9 @@ class QuickFlipMonitor:
             # Checked only when the current reversal
             # candle did not qualify as hammer-family.
             #
-            # Entry = previous red candle high.
+            # The engulfing candle must complete first.
+            # The following 5-minute candle must then
+            # break the engulfing candle high.
             if previous is not None:
                 outside_engulfing_setup = (
                     self.strategy.is_outside_lower_box(
@@ -399,6 +401,37 @@ class QuickFlipMonitor:
                         current,
                     )
                 ):
+                    confirmation_index = index + 1
+
+                    if confirmation_index >= len(
+                        completed
+                    ):
+                        if cutoff_reached:
+                            continue
+
+                        return QuickFlipMonitorResult(
+                            symbol=symbol,
+                            status="WAITING_FOR_CONFIRMATION",
+                            detail=(
+                                "Bullish engulfing detected "
+                                "below the opening-range low. "
+                                "Waiting for the next completed "
+                                "5-minute candle to break the "
+                                "engulfing high."
+                            ),
+                            opening_range=opening_range,
+                            atr_14=atr_14,
+                            liquidity_confirmed=True,
+                            completed_5m_candles=completed,
+                            pending_pattern=(
+                                "BULLISH_ENGULFING"
+                            ),
+                        )
+
+                    confirmation = completed[
+                        confirmation_index
+                    ]
+
                     signal = (
                         self.strategy
                         .evaluate_engulfing_setup(
@@ -407,6 +440,7 @@ class QuickFlipMonitor:
                             opening_range=opening_range,
                             previous=previous,
                             engulfing=current,
+                            confirmation=confirmation,
                         )
                     )
 
@@ -423,7 +457,7 @@ class QuickFlipMonitor:
                         )
 
             # A failed confirmation only invalidates
-            # this specific hammer. Continue looking
+            # this specific reversal setup. Continue looking
             # for another valid reversal before cutoff.
 
         if cutoff_reached:
