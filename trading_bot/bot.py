@@ -255,6 +255,7 @@ class TradingBot:
         )
         from .scanner_research import (
             rank_scanner_models,
+            rank_webull_v4_model,
         )
 
         start_date = date.fromisoformat(
@@ -393,6 +394,31 @@ class TradingBot:
                     )
                 )
 
+                v4_factors = {}
+
+                if (
+                    source == "WEBULL"
+                    and webull_history is not None
+                ):
+                    (
+                        v4_rankings,
+                        v4_factors,
+                    ) = rank_webull_v4_model(
+                        statistics,
+                        daily_history=(
+                            webull_history
+                        ),
+                        date_str=date_str,
+                        current_symbols=(
+                            self.scanner.current_symbols
+                        ),
+                        rules=self.scanner.rules,
+                    )
+
+                    model_rankings[
+                        "V4_RELATIVE_FACTOR"
+                    ] = v4_rankings
+
                 for model, rankings in (
                     model_rankings.items()
                 ):
@@ -434,6 +460,17 @@ class TradingBot:
                             ranking.symbol
                         ]
 
+                        v4 = (
+                            v4_factors.get(
+                                ranking.symbol
+                            )
+                            if (
+                                model
+                                == "V4_RELATIVE_FACTOR"
+                            )
+                            else None
+                        )
+
                         output_rows.append(
                             {
                                 "date": date_str,
@@ -469,6 +506,81 @@ class TradingBot:
                                 ),
                                 "avg_range_pct": (
                                     stats.avg_range_pct
+                                ),
+                                "v4_range_pct_30": (
+                                    v4.range_pct_30
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_log_dollar_volume_30": (
+                                    v4.log_dollar_volume_30
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_prior_volume": (
+                                    v4.prior_volume
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_rvol": (
+                                    v4.rvol
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_avg_volume_5": (
+                                    v4.avg_volume_5
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_avg_volume_30": (
+                                    v4.avg_volume_30
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_volume_acceleration": (
+                                    v4.volume_acceleration
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_range_pct_5": (
+                                    v4.range_pct_5
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_range_acceleration": (
+                                    v4.range_acceleration
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_range_percentile": (
+                                    v4.range_percentile
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_dollar_volume_percentile": (
+                                    v4.dollar_volume_percentile
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_rvol_percentile": (
+                                    v4.rvol_percentile
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_volume_acceleration_percentile": (
+                                    v4.volume_acceleration_percentile
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_range_acceleration_percentile": (
+                                    v4.range_acceleration_percentile
+                                    if v4
+                                    else ""
+                                ),
+                                "v4_score": (
+                                    v4.v4_score
+                                    if v4
+                                    else ""
                                 ),
                             }
                         )
@@ -509,6 +621,21 @@ class TradingBot:
             "avg_dollar_volume",
             "avg_range",
             "avg_range_pct",
+            "v4_range_pct_30",
+            "v4_log_dollar_volume_30",
+            "v4_prior_volume",
+            "v4_rvol",
+            "v4_avg_volume_5",
+            "v4_avg_volume_30",
+            "v4_volume_acceleration",
+            "v4_range_pct_5",
+            "v4_range_acceleration",
+            "v4_range_percentile",
+            "v4_dollar_volume_percentile",
+            "v4_rvol_percentile",
+            "v4_volume_acceleration_percentile",
+            "v4_range_acceleration_percentile",
+            "v4_score",
         ]
 
         with output_path.open(

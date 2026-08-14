@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from statistics import mean, pstdev
 from typing import Iterable
 
@@ -398,3 +399,521 @@ def rank_scanner_models(
         ]
 
     return results
+
+
+
+# ============================================================
+# V4 WEBULL RELATIVE-FACTOR RESEARCH
+# ============================================================
+
+V4_RANGE_WEIGHT = 0.30
+V4_DOLLAR_VOLUME_WEIGHT = 0.20
+V4_RVOL_WEIGHT = 0.20
+V4_VOLUME_ACCELERATION_WEIGHT = 0.15
+V4_RANGE_ACCELERATION_WEIGHT = 0.15
+
+
+@dataclass(frozen=True)
+class ScannerV4Factors:
+    symbol: str
+
+    range_pct_30: float
+    log_dollar_volume_30: float
+
+    prior_volume: float
+    rvol: float
+
+    avg_volume_5: float
+    avg_volume_30: float
+    volume_acceleration: float
+
+    range_pct_5: float
+    range_acceleration: float
+
+    range_percentile: float
+    dollar_volume_percentile: float
+    rvol_percentile: float
+    volume_acceleration_percentile: float
+    range_acceleration_percentile: float
+
+    v4_score: float
+
+
+def _percentile_ranks(
+        values: list[float],
+) -> list[float]:
+    """
+    Cross-sectional midrank percentiles from 0 to 1.
+
+    Tied observations receive the same percentile.
+    A one-symbol universe receives 0.5.
+    """
+    if not values:
+        return []
+
+    if len(values) == 1:
+        return [0.5]
+
+    denominator = (
+        len(values) - 1
+    )
+
+    results = []
+
+    for value in values:
+        lower = sum(
+            candidate < value
+            for candidate in values
+        )
+
+        equal = sum(
+            candidate == value
+            for candidate in values
+        )
+
+        midpoint_rank = (
+            lower
+            + ((equal - 1) / 2.0)
+        )
+
+        results.append(
+            midpoint_rank / denominator
+        )
+
+    return results
+
+
+def build_v4_factor_scores(
+        *,
+        daily_history: dict[
+            str,
+            list[dict],
+        ],
+        date_str: str,
+        eligible_symbols: Iterable[str],
+) -> list[ScannerV4Factors]:
+    """
+    Build Webull V4 factors using information strictly before
+    `date_str`.
+
+    Exactly 30 valid prior daily sessions are required so the
+    30-session factors mean what their names imply.
+
+    No opening/intraday information from the evaluation date is
+    used, preventing scanner look-ahead bias.
+    """
+    trading_date = (
+        datetime.strptime(
+            date_str,
+            "%Y-%m-%d",
+        ).date()
+    )
+
+    raw_rows = []
+
+    for symbol in sorted(
+        set(eligible_symbols)
+    ):
+        bars = daily_history.get(
+            symbol,
+            [],
+        )
+
+        prior = []
+
+        for bar in bars:
+            try:
+                timestamp = (
+                    datetime.fromisoformat(
+                        str(
+                            bar["t"]
+                        ).replace(
+                            "Z",
+                            "+00:00",
+                        )
+                    )
+                )
+
+                volume = float(
+                    bar["v"]
+                )
+
+                close = float(
+                    bar["c"]
+                )
+
+                high = float(
+                    bar["h"]
+                )
+
+                low = float(
+                    bar["l"]
+                )
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if (
+                timestamp.date()
+                >= trading_date
+            ):
+                continue
+
+            if volume < 0:
+                continue
+
+            if min(
+                close,
+                high,
+                low,
+            ) <= 0:
+                continue
+
+            if high < low:
+                continue
+
+            prior.append(
+                (
+                    timestamp,
+                    volume,
+                    close,
+                    high - low,
+                )
+            )
+
+        prior.sort(
+            key=lambda row: row[0]
+        )
+
+        if len(prior) < 30:
+            continue
+
+        window_30 = prior[-30:]
+        window_5 = prior[-5:]
+
+        avg_volume_30 = mean(
+            row[1]
+            for row in window_30
+        )
+
+        avg_price_30 = mean(
+            row[2]
+            for row in window_30
+        )
+
+        avg_range_30 = mean(
+            row[3]
+            for row in window_30
+        )
+
+        avg_volume_5 = mean(
+            row[1]
+            for row in window_5
+        )
+
+        avg_price_5 = mean(
+            row[2]
+            for row in window_5
+        )
+
+        avg_range_5 = mean(
+            row[3]
+            for row in window_5
+        )
+
+        if (
+            avg_volume_30 <= 0
+            or avg_price_30 <= 0
+            or avg_price_5 <= 0
+        ):
+            continue
+
+        range_pct_30 = (
+            avg_range_30
+            / avg_price_30
+            * 100.0
+        )
+
+        range_pct_5 = (
+            avg_range_5
+            / avg_price_5
+            * 100.0
+        )
+
+        if range_pct_30 <= 0:
+            continue
+
+        prior_volume = float(
+            window_30[-1][1]
+        )
+
+        average_dollar_volume = (
+            avg_volume_30
+            * avg_price_30
+        )
+
+        log_dollar_volume_30 = (
+            math.log1p(
+                average_dollar_volume
+                / DOLLAR_VOLUME_SCALE
+            )
+        )
+
+        rvol = (
+            prior_volume
+            / avg_volume_30
+        )
+
+        volume_acceleration = (
+            avg_volume_5
+            / avg_volume_30
+        )
+
+        range_acceleration = (
+            range_pct_5
+            / range_pct_30
+        )
+
+        raw_rows.append({
+            "symbol": symbol,
+            "range_pct_30": (
+                range_pct_30
+            ),
+            "log_dollar_volume_30": (
+                log_dollar_volume_30
+            ),
+            "prior_volume": (
+                prior_volume
+            ),
+            "rvol": rvol,
+            "avg_volume_5": (
+                avg_volume_5
+            ),
+            "avg_volume_30": (
+                avg_volume_30
+            ),
+            "volume_acceleration": (
+                volume_acceleration
+            ),
+            "range_pct_5": (
+                range_pct_5
+            ),
+            "range_acceleration": (
+                range_acceleration
+            ),
+        })
+
+    range_percentiles = _percentile_ranks([
+        row["range_pct_30"]
+        for row in raw_rows
+    ])
+
+    dollar_percentiles = _percentile_ranks([
+        row["log_dollar_volume_30"]
+        for row in raw_rows
+    ])
+
+    rvol_percentiles = _percentile_ranks([
+        row["rvol"]
+        for row in raw_rows
+    ])
+
+    volume_accel_percentiles = (
+        _percentile_ranks([
+            row[
+                "volume_acceleration"
+            ]
+            for row in raw_rows
+        ])
+    )
+
+    range_accel_percentiles = (
+        _percentile_ranks([
+            row[
+                "range_acceleration"
+            ]
+            for row in raw_rows
+        ])
+    )
+
+    results = []
+
+    for (
+        row,
+        range_percentile,
+        dollar_percentile,
+        rvol_percentile,
+        volume_accel_percentile,
+        range_accel_percentile,
+    ) in zip(
+        raw_rows,
+        range_percentiles,
+        dollar_percentiles,
+        rvol_percentiles,
+        volume_accel_percentiles,
+        range_accel_percentiles,
+        strict=True,
+    ):
+        score = (
+            V4_RANGE_WEIGHT
+            * range_percentile
+
+            + V4_DOLLAR_VOLUME_WEIGHT
+            * dollar_percentile
+
+            + V4_RVOL_WEIGHT
+            * rvol_percentile
+
+            + V4_VOLUME_ACCELERATION_WEIGHT
+            * volume_accel_percentile
+
+            + V4_RANGE_ACCELERATION_WEIGHT
+            * range_accel_percentile
+        )
+
+        results.append(
+            ScannerV4Factors(
+                symbol=row["symbol"],
+                range_pct_30=(
+                    row["range_pct_30"]
+                ),
+                log_dollar_volume_30=(
+                    row[
+                        "log_dollar_volume_30"
+                    ]
+                ),
+                prior_volume=(
+                    row["prior_volume"]
+                ),
+                rvol=row["rvol"],
+                avg_volume_5=(
+                    row["avg_volume_5"]
+                ),
+                avg_volume_30=(
+                    row["avg_volume_30"]
+                ),
+                volume_acceleration=(
+                    row[
+                        "volume_acceleration"
+                    ]
+                ),
+                range_pct_5=(
+                    row["range_pct_5"]
+                ),
+                range_acceleration=(
+                    row[
+                        "range_acceleration"
+                    ]
+                ),
+                range_percentile=(
+                    range_percentile
+                ),
+                dollar_volume_percentile=(
+                    dollar_percentile
+                ),
+                rvol_percentile=(
+                    rvol_percentile
+                ),
+                volume_acceleration_percentile=(
+                    volume_accel_percentile
+                ),
+                range_acceleration_percentile=(
+                    range_accel_percentile
+                ),
+                v4_score=score,
+            )
+        )
+
+    return results
+
+
+def rank_webull_v4_model(
+        statistics: Iterable[StockStats],
+        *,
+        daily_history: dict[
+            str,
+            list[dict],
+        ],
+        date_str: str,
+        current_symbols: Iterable[str],
+        rules: ScannerRules | None = None,
+) -> tuple[
+    list[ScannerModelSelection],
+    dict[str, ScannerV4Factors],
+]:
+    """
+    Rank eligible candidates under Webull V4.
+
+    Production scanner behavior is not modified.
+    """
+    rows = list(statistics)
+
+    scanner = StockScanner(
+        current_symbols=list(
+            current_symbols
+        ),
+        rules=rules,
+    )
+
+    current_set = set(
+        scanner.current_symbols
+    )
+
+    eligible_symbols = [
+        row.symbol
+        for row in rows
+        if (
+            row.symbol not in current_set
+            and scanner.is_eligible(row)
+        )
+    ]
+
+    factors = build_v4_factor_scores(
+        daily_history=daily_history,
+        date_str=date_str,
+        eligible_symbols=(
+            eligible_symbols
+        ),
+    )
+
+    factors_by_symbol = {
+        row.symbol: row
+        for row in factors
+    }
+
+    scored = sorted(
+        factors,
+        key=lambda row: (
+            -row.v4_score,
+            row.symbol,
+        ),
+    )
+
+    rankings = [
+        ScannerModelSelection(
+            model=(
+                "V4_RELATIVE_FACTOR"
+            ),
+            symbol=row.symbol,
+            rank=rank,
+            selected=(
+                rank
+                <= scanner.rules.candidate_limit
+            ),
+            score=row.v4_score,
+        )
+        for rank, row
+        in enumerate(
+            scored,
+            start=1,
+        )
+    ]
+
+    return (
+        rankings,
+        factors_by_symbol,
+    )

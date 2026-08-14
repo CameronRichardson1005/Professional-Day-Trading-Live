@@ -9,10 +9,12 @@ from trading_bot.quick_flip_strategy import (
 from trading_bot.scanner import StockStats
 from trading_bot.scanner_research import (
     build_factor_scores,
+    build_v4_factor_scores,
     log_dollar_volume_score,
     log_volume_score,
     manipulation_opportunity,
     quick_flip_opportunity,
+    rank_webull_v4_model,
 )
 
 
@@ -282,4 +284,193 @@ def test_quick_flip_does_not_require_fake_stop_loss():
     assert not hasattr(
         opportunity,
         "reward_risk",
+    )
+
+
+
+def _daily_bar(
+        day,
+        *,
+        volume,
+        close=10.0,
+        range_size=1.0,
+):
+    return {
+        "t": f"{day}T04:00:00Z",
+        "o": close,
+        "h": close + (
+            range_size / 2.0
+        ),
+        "l": close - (
+            range_size / 2.0
+        ),
+        "c": close,
+        "v": volume,
+    }
+
+
+def test_v4_ignores_evaluation_date_bar():
+    from datetime import (
+        date,
+        timedelta,
+    )
+
+    start = date(
+        2026,
+        6,
+        1,
+    )
+
+    bars = [
+        _daily_bar(
+            (
+                start
+                + timedelta(days=index)
+            ).isoformat(),
+            volume=1_000_000,
+        )
+        for index in range(30)
+    ]
+
+    # Deliberately enormous same-day value.
+    # It must not enter premarket factors.
+    bars.append(
+        _daily_bar(
+            "2026-07-15",
+            volume=999_999_999,
+            range_size=9.0,
+        )
+    )
+
+    factors = build_v4_factor_scores(
+        daily_history={
+            "TEST": bars,
+        },
+        date_str="2026-07-15",
+        eligible_symbols=["TEST"],
+    )
+
+    assert len(factors) == 1
+
+    row = factors[0]
+
+    assert (
+        row.prior_volume
+        == pytest.approx(
+            1_000_000
+        )
+    )
+
+    assert (
+        row.avg_volume_30
+        == pytest.approx(
+            1_000_000
+        )
+    )
+
+    assert (
+        row.rvol
+        == pytest.approx(1.0)
+    )
+
+
+def test_v4_relative_activity_changes_ranking():
+    from datetime import (
+        date,
+        timedelta,
+    )
+
+    start = date(
+        2026,
+        6,
+        1,
+    )
+
+    quiet = []
+    active = []
+
+    for index in range(30):
+        day = (
+            start
+            + timedelta(days=index)
+        ).isoformat()
+
+        quiet.append(
+            _daily_bar(
+                day,
+                volume=1_000_000,
+                range_size=0.60,
+            )
+        )
+
+        active_volume = (
+            3_000_000
+            if index >= 25
+            else 1_000_000
+        )
+
+        active_range = (
+            1.50
+            if index >= 25
+            else 0.60
+        )
+
+        active.append(
+            _daily_bar(
+                day,
+                volume=active_volume,
+                range_size=active_range,
+            )
+        )
+
+    statistics = [
+        stats(
+            "QUIET",
+            volume=1_000_000,
+            price=10,
+            range_pct=6,
+        ),
+        stats(
+            "ACTIVE",
+            volume=1_500_000,
+            price=10,
+            range_pct=6,
+        ),
+    ]
+
+    rankings, factors = (
+        rank_webull_v4_model(
+            statistics,
+            daily_history={
+                "QUIET": quiet,
+                "ACTIVE": active,
+            },
+            date_str="2026-07-15",
+            current_symbols=[],
+        )
+    )
+
+    assert (
+        rankings[0].symbol
+        == "ACTIVE"
+    )
+
+    assert (
+        factors[
+            "ACTIVE"
+        ].volume_acceleration
+        >
+        factors[
+            "QUIET"
+        ].volume_acceleration
+    )
+
+    assert (
+        factors[
+            "ACTIVE"
+        ].range_acceleration
+        >
+        factors[
+            "QUIET"
+        ].range_acceleration
     )
