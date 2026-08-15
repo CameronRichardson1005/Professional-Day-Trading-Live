@@ -2983,8 +2983,22 @@ class SheetsClient:
 
         rows = []
 
+        display_statuses = {
+            "PREVIEW READY",
+            "BLOCKED BY MANIPULATION",
+            "BLOCKED BY EARLIER QUICK FLIP",
+            "PREVIEW FAILED",
+        }
+
         for preview in previews:
-            if preview.get("status") != "PREVIEW READY":
+            status = str(
+                preview.get(
+                    "status",
+                    "",
+                )
+            ).strip().upper()
+
+            if status not in display_statuses:
                 continue
 
             strategy = str(

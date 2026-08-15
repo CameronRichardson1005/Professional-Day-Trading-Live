@@ -1749,6 +1749,194 @@ class TradingBot:
                 "status": "PREVIEW READY",
             })
 
+        # A valid Quick Flip signal can be causally blocked from
+        # receiving capital when the 09:45 Manipulation event
+        # already consumed the deployable pool, or when an earlier
+        # Quick Flip confirmation group already consumed it.
+        #
+        # Preserve those setups on the concise dashboard for audit
+        # visibility without pretending that a Webull preview or
+        # broker order occurred.
+        ready_qf_symbols = {
+            str(
+                preview.get(
+                    "symbol",
+                    "",
+                )
+            ).strip().upper()
+            for preview in getattr(
+                self,
+                "quick_flip_webull_previews",
+                [],
+            )
+            if (
+                isinstance(
+                    preview,
+                    dict,
+                )
+                and preview.get(
+                    "status"
+                )
+                == "PREVIEW READY"
+            )
+        }
+
+        manipulation_funded = bool(
+            getattr(
+                self,
+                "live_committed_policy_manipulation_funded",
+                False,
+            )
+        )
+
+        quick_flip_funded = bool(
+            getattr(
+                self,
+                "live_committed_policy_quick_flip_funded",
+                False,
+            )
+        )
+
+        for symbol, result in getattr(
+            self,
+            "quick_flip_results",
+            {},
+        ).items():
+            if result is None:
+                continue
+
+            signal = getattr(
+                result,
+                "signal",
+                None,
+            )
+
+            if (
+                signal is None
+                or getattr(
+                    signal,
+                    "signal",
+                    None,
+                )
+                != "INVEST"
+            ):
+                continue
+
+            symbol_upper = str(
+                symbol
+            ).strip().upper()
+
+            if symbol_upper in ready_qf_symbols:
+                continue
+
+            if manipulation_funded:
+                display_status = (
+                    "BLOCKED BY MANIPULATION"
+                )
+            elif quick_flip_funded:
+                display_status = (
+                    "BLOCKED BY EARLIER QUICK FLIP"
+                )
+            else:
+                continue
+
+            confirmation = getattr(
+                signal,
+                "confirmation_time",
+                None,
+            )
+
+            if confirmation is not None:
+                try:
+                    if hasattr(
+                        confirmation,
+                        "astimezone",
+                    ):
+                        display_time = (
+                            confirmation
+                            .astimezone(
+                                eastern
+                            )
+                            .strftime(
+                                "%H:%M:%S"
+                            )
+                        )
+                    else:
+                        parsed_confirmation = (
+                            datetime.fromisoformat(
+                                str(
+                                    confirmation
+                                ).replace(
+                                    "Z",
+                                    "+00:00",
+                                )
+                            )
+                        )
+
+                        display_time = (
+                            parsed_confirmation
+                            .astimezone(
+                                eastern
+                            )
+                            .strftime(
+                                "%H:%M:%S"
+                            )
+                        )
+                except Exception:
+                    display_time = (
+                        datetime.now(
+                            eastern
+                        ).strftime(
+                            "%H:%M:%S"
+                        )
+                    )
+            else:
+                display_time = (
+                    datetime.now(
+                        eastern
+                    ).strftime(
+                        "%H:%M:%S"
+                    )
+                )
+
+            tp1 = getattr(
+                signal,
+                "take_profit_1",
+                "",
+            )
+
+            tp2 = getattr(
+                signal,
+                "take_profit_2",
+                "",
+            )
+
+            if (
+                tp1 != ""
+                and tp2 != ""
+            ):
+                exit_value = (
+                    f"{tp1} / {tp2}"
+                )
+            elif tp1 != "":
+                exit_value = tp1
+            else:
+                exit_value = tp2
+
+            previews.append({
+                "time": display_time,
+                "strategy": "Quick Flip",
+                "symbol": symbol_upper,
+                "entry": getattr(
+                    signal,
+                    "entry_price",
+                    "",
+                ),
+                "exit": exit_value,
+                "quantity": "",
+                "status": display_status,
+            })
+
         self.trading_sheets.write_trade_previews_today(
             date_str=date_str,
             previews=previews,
