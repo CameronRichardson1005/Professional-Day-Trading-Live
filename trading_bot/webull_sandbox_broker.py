@@ -43,6 +43,8 @@ class WebullBrokerOrderState:
     limit_price: float | None
     filled_quantity: float
     average_fill_price: float | None
+    symbol: str | None = None
+    side: str | None = None
 
 
 def _walk_dicts(value: Any):
@@ -188,6 +190,20 @@ def parse_order_detail(
                     "average_fill_price"
                 ),
             )
+        ),
+        symbol=(
+            None
+            if not item.get("symbol")
+            else str(
+                item["symbol"]
+            ).strip().upper()
+        ),
+        side=(
+            None
+            if not item.get("side")
+            else str(
+                item["side"]
+            ).strip().upper()
         ),
     )
 
