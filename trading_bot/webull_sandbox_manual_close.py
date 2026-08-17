@@ -20,6 +20,9 @@ from .webull_sandbox_preflight import (
 
 
 CLOSE_CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_CLOSE"
+CLOSE_CANCEL_CONFIRMATION_PHRASE = (
+    "CONFIRM_SANDBOX_CLOSE_CANCEL"
+)
 
 
 class WebullSandboxManualCloseError(RuntimeError):
@@ -194,5 +197,47 @@ class WebullSandboxManualCloseService:
         except Exception as error:
             raise WebullSandboxManualCloseError(
                 "SANDBOX_CLOSE_SUBMISSION_FAILED:"
+                f"{error}"
+            ) from error
+
+
+    def cancel(
+        self,
+        *,
+        client_order_id: str,
+        confirmation: str,
+    ) -> WebullReduceOnlyCloseRecord:
+        """
+        Rescue-cancel an existing reduce-only sandbox close.
+
+        Cancellation deliberately does not require either
+        submission arm. It delegates to the close manager,
+        which performs broker-state reconciliation and
+        does not blindly retry ambiguous mutations.
+        """
+
+        key = client_order_id.strip()
+
+        if not key:
+            raise WebullSandboxManualCloseError(
+                "CLIENT_ORDER_ID_REQUIRED"
+            )
+
+        if (
+            confirmation.strip()
+            != CLOSE_CANCEL_CONFIRMATION_PHRASE
+        ):
+            raise WebullSandboxManualCloseError(
+                "SANDBOX_CLOSE_CANCEL_CONFIRMATION_REQUIRED"
+            )
+
+        try:
+            return self.close_manager.cancel(
+                client_order_id=key
+            )
+
+        except Exception as error:
+            raise WebullSandboxManualCloseError(
+                "SANDBOX_CLOSE_CANCEL_FAILED:"
                 f"{error}"
             ) from error

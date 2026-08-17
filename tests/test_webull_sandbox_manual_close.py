@@ -8,6 +8,7 @@ from trading_bot.webull_account_parser import (
     ParsedWebullPosition,
 )
 from trading_bot.webull_sandbox_manual_close import (
+    CLOSE_CANCEL_CONFIRMATION_PHRASE,
     CLOSE_CONFIRMATION_PHRASE,
     WebullSandboxManualCloseError,
     WebullSandboxManualCloseRequest,
@@ -234,3 +235,120 @@ def test_wrong_confirmation_rejected():
             limit_price=6.90,
             confirmation="WRONG",
         )
+
+
+
+class FakeCancelManager:
+    def __init__(self):
+        self.cancel_calls = []
+
+    def cancel(
+        self,
+        *,
+        client_order_id,
+    ):
+        self.cancel_calls.append(
+            client_order_id
+        )
+
+        return SimpleNamespace(
+            client_order_id=client_order_id,
+            symbol="SOUN",
+            side="SELL",
+            quantity=1,
+            limit_price=6.90,
+            status="CANCELLED",
+            broker_status="CANCELLED",
+            broker_order_id="broker-close-1",
+            filled_quantity=0.0,
+            position_reconciled=False,
+        )
+
+
+def make_cancel_service(
+    *,
+    management_armed=False,
+):
+    client = FakeSnapshotClient(
+        snapshot()
+    )
+
+    manager = FakeCancelManager()
+
+    service = WebullSandboxManualCloseService(
+        snapshot_client=client,
+        close_manager=manager,
+        management_armed=management_armed,
+        clock=lambda: NOW,
+        client_order_id_factory=(
+            lambda: "unused"
+        ),
+    )
+
+    return service, client, manager
+
+
+def test_close_cancel_is_available_with_both_arms_off():
+    service, client, manager = (
+        make_cancel_service(
+            management_armed=False
+        )
+    )
+
+    result = service.cancel(
+        client_order_id="close-1",
+        confirmation=(
+            CLOSE_CANCEL_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert result.status == "CANCELLED"
+    assert manager.cancel_calls == [
+        "close-1"
+    ]
+
+    assert client.calls == 0
+
+
+def test_close_cancel_requires_exact_confirmation():
+    service, client, manager = (
+        make_cancel_service(
+            management_armed=False
+        )
+    )
+
+    with pytest.raises(
+        WebullSandboxManualCloseError,
+        match=(
+            "SANDBOX_CLOSE_CANCEL_CONFIRMATION_REQUIRED"
+        ),
+    ):
+        service.cancel(
+            client_order_id="close-1",
+            confirmation="WRONG",
+        )
+
+    assert manager.cancel_calls == []
+    assert client.calls == 0
+
+
+def test_close_cancel_requires_client_order_id():
+    service, client, manager = (
+        make_cancel_service(
+            management_armed=False
+        )
+    )
+
+    with pytest.raises(
+        WebullSandboxManualCloseError,
+        match="CLIENT_ORDER_ID_REQUIRED",
+    ):
+        service.cancel(
+            client_order_id="   ",
+            confirmation=(
+                CLOSE_CANCEL_CONFIRMATION_PHRASE
+            ),
+        )
+
+    assert manager.cancel_calls == []
+    assert client.calls == 0
