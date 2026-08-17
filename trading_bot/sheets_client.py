@@ -802,6 +802,305 @@ class SheetsClient:
                 }
             )
 
+    @staticmethod
+    def _append_trade_previews_display_requests(
+            *,
+            requests: list[dict],
+            columns: list,
+            values: list,
+            sheet_id: int,
+            row_count: int,
+    ) -> None:
+        """
+        Apply the concise daily Trade Previews display rules.
+
+        These requests affect presentation only. They do not change
+        strategy decisions, allocations, reservations, or broker
+        behavior.
+        """
+        column_indexes = {
+            str(column): index
+            for index, column
+            in enumerate(columns)
+        }
+
+        def append_number_format(
+                column_name: str,
+                format_type: str,
+                pattern: str,
+        ) -> None:
+            column_index = (
+                column_indexes.get(
+                    column_name
+                )
+            )
+
+            if column_index is None:
+                return
+
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 1,
+                        "endRowIndex": row_count,
+                        "startColumnIndex": (
+                            column_index
+                        ),
+                        "endColumnIndex": (
+                            column_index + 1
+                        ),
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "numberFormat": {
+                                "type": format_type,
+                                "pattern": pattern,
+                            },
+                        },
+                    },
+                    "fields": (
+                        "userEnteredFormat."
+                        "numberFormat"
+                    ),
+                },
+            })
+
+        append_number_format(
+            "Time",
+            "TIME",
+            "h:mm AM/PM",
+        )
+
+        append_number_format(
+            "Entry",
+            "CURRENCY",
+            "$0.0000",
+        )
+
+        # Numeric Manipulation targets receive currency formatting.
+        # Quick Flip's combined "TP1 / TP2" text remains unchanged.
+        append_number_format(
+            "Exit",
+            "CURRENCY",
+            "$0.0000",
+        )
+
+        # Trade Previews stores this as a fractional spreadsheet
+        # percentage after USER_ENTERED parsing, so use PERCENT
+        # rather than the generic literal-percent formatter.
+        append_number_format(
+            "Allocation %",
+            "PERCENT",
+            "0.00%",
+        )
+
+        append_number_format(
+            "Recommended Allocation $",
+            "CURRENCY",
+            "$0.00",
+        )
+
+        status_index = (
+            column_indexes.get(
+                "Status"
+            )
+        )
+
+        if status_index is None:
+            return
+
+        ready_background = {
+            "red": 0.82,
+            "green": 0.94,
+            "blue": 0.82,
+        }
+
+        blocked_background = {
+            "red": 1.00,
+            "green": 0.88,
+            "blue": 0.78,
+        }
+
+        failed_background = {
+            "red": 0.96,
+            "green": 0.78,
+            "blue": 0.78,
+        }
+
+        for row_index, row in enumerate(
+            values[1:],
+            start=1,
+        ):
+            if status_index >= len(row):
+                continue
+
+            status = str(
+                row[status_index]
+            ).strip().upper()
+
+            if status == "PREVIEW READY":
+                background = ready_background
+            elif status in {
+                "BLOCKED BY MANIPULATION",
+                "BLOCKED BY EARLIER QUICK FLIP",
+            }:
+                background = blocked_background
+            elif status == "PREVIEW FAILED":
+                background = failed_background
+            else:
+                continue
+
+            requests.append({
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_index,
+                        "endRowIndex": (
+                            row_index + 1
+                        ),
+                        "startColumnIndex": (
+                            status_index
+                        ),
+                        "endColumnIndex": (
+                            status_index + 1
+                        ),
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": (
+                                background
+                            ),
+                            "textFormat": {
+                                "bold": True,
+                            },
+                            "horizontalAlignment": (
+                                "CENTER"
+                            ),
+                        },
+                    },
+                    "fields": (
+                        "userEnteredFormat."
+                        "backgroundColor,"
+                        "userEnteredFormat."
+                        "textFormat.bold,"
+                        "userEnteredFormat."
+                        "horizontalAlignment"
+                    ),
+                },
+            })
+
+    @staticmethod
+    def _trading_sheet_layout_policy(
+            sheet_title: str,
+    ) -> dict | None:
+        """
+        Return the daily-use presentation policy for the clean
+        Manipulation + Quick Flip workbook.
+
+        Hidden columns retain their underlying values for audit and
+        debugging; this policy changes presentation only.
+        """
+        layouts = {
+            "Trade Previews": {
+                "widths": {
+                    0: 105,
+                    1: 105,
+                    2: 60,
+                    3: 125,
+                    4: 80,
+                    5: 100,
+                    6: 145,
+                    7: 90,
+                    8: 115,
+                    9: 180,
+                    10: 225,
+                },
+                "hidden_columns": [],
+            },
+            "Scanner Dashboard": {
+                "widths": {
+                    0: 105,
+                    1: 85,
+                    3: 135,
+                    4: 110,
+                    7: 115,
+                    9: 90,
+                    10: 175,
+                },
+                "hidden_columns": [
+                    (2, 3),
+                    (5, 7),
+                    (8, 9),
+                ],
+            },
+            "Manipulation Signals": {
+                "widths": {
+                    0: 105,
+                    1: 85,
+                    4: 90,
+                    5: 95,
+                    6: 95,
+                    8: 125,
+                    9: 105,
+                    14: 220,
+                },
+                "hidden_columns": [
+                    (2, 4),
+                    (7, 8),
+                    (10, 14),
+                    (15, 26),
+                ],
+            },
+            "Quick Flip Signals": {
+                "widths": {
+                    0: 105,
+                    1: 85,
+                    2: 120,
+                    3: 90,
+                    4: 105,
+                    5: 95,
+                    6: 95,
+                    7: 95,
+                    14: 135,
+                },
+                "hidden_columns": [
+                    (8, 14),
+                    (15, 18),
+                ],
+            },
+            "Daily Trade P&L": {
+                "widths": {
+                    0: 105,
+                    1: 85,
+                    2: 90,
+                    3: 105,
+                    4: 105,
+                    5: 110,
+                    6: 105,
+                    7: 135,
+                },
+                "hidden_columns": [],
+            },
+            "Daily P&L Summary": {
+                "widths": {
+                    0: 105,
+                    1: 105,
+                    2: 110,
+                    3: 110,
+                    4: 125,
+                    5: 105,
+                    6: 115,
+                    7: 115,
+                    8: 120,
+                    9: 170,
+                },
+                "hidden_columns": [],
+            },
+        }
+
+        return layouts.get(sheet_title)
+
     def format_worksheet(
             self,
             worksheet,
@@ -895,6 +1194,21 @@ class SheetsClient:
             column_widths.append(
                 min(width, 260)
             )
+
+        layout_policy = (
+            self._trading_sheet_layout_policy(
+                worksheet.title
+            )
+        )
+
+        if layout_policy is not None:
+            for column_index, pixel_width in (
+                layout_policy["widths"].items()
+            ):
+                if column_index < len(column_widths):
+                    column_widths[
+                        column_index
+                    ] = pixel_width
 
         header_background = {
             "red": 0.09,
@@ -1218,20 +1532,194 @@ class SheetsClient:
                     }
                 )
 
+        if worksheet.title == "Trade Previews":
+            self._append_trade_previews_display_requests(
+                requests=requests,
+                columns=columns,
+                values=values,
+                sheet_id=sheet_id,
+                row_count=row_count,
+            )
+
+        if layout_policy is not None:
+            # First restore every managed column to visible, then
+            # hide only the diagnostic ranges in the policy.
+            requests.append({
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": 0,
+                        "endIndex": column_count,
+                    },
+                    "properties": {
+                        "hiddenByUser": False,
+                    },
+                    "fields": "hiddenByUser",
+                }
+            })
+
+            for start_index, end_index in (
+                layout_policy[
+                    "hidden_columns"
+                ]
+            ):
+                if start_index >= column_count:
+                    continue
+
+                requests.append({
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": sheet_id,
+                            "dimension": "COLUMNS",
+                            "startIndex": (
+                                start_index
+                            ),
+                            "endIndex": min(
+                                end_index,
+                                column_count,
+                            ),
+                        },
+                        "properties": {
+                            "hiddenByUser": True,
+                        },
+                        "fields": "hiddenByUser",
+                    }
+                })
+
         self.spreadsheet.batch_update(
             {
                 "requests": requests,
             }
         )
 
+    def _apply_trading_workbook_structure(
+            self,
+            worksheets=None,
+    ) -> bool:
+        """
+        Keep the clean trading workbook ordered around the daily
+        decision workflow while retaining research/support tabs.
+
+        This is deliberately applied by format_all_sheets rather
+        than every worksheet write so normal production does not
+        create unnecessary Google Sheets API traffic.
+        """
+        visible_order = [
+            "Trade Previews",
+            "Scanner Dashboard",
+            "Manipulation Signals",
+            "Quick Flip Signals",
+            "Daily Trade P&L",
+            "Daily P&L Summary",
+        ]
+
+        hidden_order = [
+            "Quick Flip Previews",
+            (
+                "Manipulation Selling Pressure "
+                "Research"
+            ),
+            "Committed Allocation History",
+        ]
+
+        desired_order = (
+            visible_order
+            + hidden_order
+        )
+
+        if worksheets is None:
+            worksheets = (
+                self.spreadsheet.worksheets()
+            )
+
+        worksheets = list(worksheets)
+
+        by_title = {
+            worksheet.title: worksheet
+            for worksheet in worksheets
+        }
+
+        if not all(
+            title in by_title
+            for title in desired_order
+        ):
+            return False
+
+        extras = [
+            worksheet
+            for worksheet in worksheets
+            if worksheet.title
+            not in desired_order
+        ]
+
+        target = [
+            by_title[title]
+            for title in desired_order
+        ] + extras
+
+        current_titles = [
+            worksheet.title
+            for worksheet in worksheets
+        ]
+
+        target_titles = [
+            worksheet.title
+            for worksheet in target
+        ]
+
+        if current_titles != target_titles:
+            self.spreadsheet.reorder_worksheets(
+                target
+            )
+
+        visibility_requests = []
+
+        for title in visible_order:
+            visibility_requests.append({
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": (
+                            by_title[title].id
+                        ),
+                        "hidden": False,
+                    },
+                    "fields": "hidden",
+                }
+            })
+
+        for title in hidden_order:
+            visibility_requests.append({
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": (
+                            by_title[title].id
+                        ),
+                        "hidden": True,
+                    },
+                    "fields": "hidden",
+                }
+            })
+
+        self.spreadsheet.batch_update({
+            "requests": visibility_requests,
+        })
+
+        return True
+
     def format_all_sheets(self) -> None:
         """
-        Apply professional formatting to every worksheet in the
-        workbook.
+        Apply professional formatting to every worksheet and, when
+        this is the clean trading workbook, restore its daily-use
+        tab order and visibility policy.
         """
         formatted = 0
 
-        for worksheet in self.spreadsheet.worksheets():
+        worksheets = (
+            self.spreadsheet.worksheets()
+        )
+
+        for worksheet in worksheets:
             try:
                 self.format_worksheet(
                     worksheet,
@@ -1243,6 +1731,16 @@ class SheetsClient:
                     f"Formatting skipped for {worksheet.title}: "
                     f"{error}"
                 )
+
+        try:
+            self._apply_trading_workbook_structure(
+                worksheets=worksheets,
+            )
+        except Exception as error:
+            print(
+                "Trading workbook organization skipped: "
+                f"{error}"
+            )
 
         print(
             f"{formatted} worksheet(s) professionally formatted."
