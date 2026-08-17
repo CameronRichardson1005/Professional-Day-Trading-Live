@@ -381,3 +381,18 @@ WEBULL_SANDBOX_ACCOUNT_ID = os.getenv(
     "WEBULL_SANDBOX_ACCOUNT_ID",
     "",
 ).strip()
+
+
+# Separate durable source-of-record for reduce-only Webull
+# sandbox position-closing orders. Keeping this distinct from
+# the BUY execution ledger preserves BUY-only entry invariants.
+WEBULL_SANDBOX_CLOSE_LEDGER_FILE = Path(
+    os.getenv(
+        "WEBULL_SANDBOX_CLOSE_LEDGER_FILE",
+        str(
+            PROJECT_ROOT
+            / "runtime"
+            / "webull_sandbox_close_ledger.json"
+        ),
+    )
+)
