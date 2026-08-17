@@ -292,3 +292,61 @@ WEBULL_APPROVAL_STORE_FILE = Path(
         ),
     )
 )
+
+
+# ------------------------------------------------------------
+# Webull broker execution foundation
+# ------------------------------------------------------------
+#
+# Only DISABLED and SANDBOX are permitted at this stage.
+# LIVE_APPROVAL and LIVE_AUTO are intentionally recognized
+# but hard-locked until sandbox validation is complete.
+WEBULL_EXECUTION_MODE = os.getenv(
+    "WEBULL_EXECUTION_MODE",
+    "DISABLED",
+).strip().upper()
+
+_WEBULL_EXECUTION_MODES = {
+    "DISABLED",
+    "SANDBOX",
+    "LIVE_APPROVAL",
+    "LIVE_AUTO",
+}
+
+if WEBULL_EXECUTION_MODE not in _WEBULL_EXECUTION_MODES:
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MODE must be one of: "
+        + ", ".join(sorted(_WEBULL_EXECUTION_MODES))
+    )
+
+if WEBULL_EXECUTION_MODE in {
+    "LIVE_APPROVAL",
+    "LIVE_AUTO",
+}:
+    raise RuntimeError(
+        "Live Webull execution modes are locked. "
+        "Only DISABLED or SANDBOX may be used."
+    )
+
+# Sandbox credentials are deliberately separate from the
+# existing production Webull preview/account credentials.
+WEBULL_SANDBOX_APP_KEY = os.getenv(
+    "WEBULL_SANDBOX_APP_KEY",
+    "",
+).strip()
+
+WEBULL_SANDBOX_APP_SECRET = os.getenv(
+    "WEBULL_SANDBOX_APP_SECRET",
+    "",
+).strip()
+
+WEBULL_EXECUTION_LEDGER_FILE = Path(
+    os.getenv(
+        "WEBULL_EXECUTION_LEDGER_FILE",
+        str(
+            PROJECT_ROOT
+            / "runtime"
+            / "webull_execution_ledger.json"
+        ),
+    )
+)
