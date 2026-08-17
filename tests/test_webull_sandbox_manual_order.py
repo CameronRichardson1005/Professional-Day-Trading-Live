@@ -125,7 +125,13 @@ class FakeManager:
         if self.reconcile_results:
             return self.reconcile_results.pop(0)
 
-        return self.cancel_result
+        return SimpleNamespace(
+            client_order_id=client_order_id,
+            symbol="SOUN",
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=False,
+        )
 
     def mark_cancel_pending(
         self,
@@ -163,6 +169,7 @@ def make_service(
             sleeper=lambda seconds: None,
             cancel_poll_attempts=3,
             cancel_poll_interval_seconds=1.1,
+            cancel_stabilization_seconds=2.1,
         )
     )
 
@@ -474,3 +481,77 @@ def test_cancel_timeout_stays_cancel_pending():
     assert manager.mark_pending_calls == [
         "order-1"
     ]
+
+
+
+def test_cancel_stabilizes_before_request():
+    sleeps = []
+
+    preflight = FakePreflight()
+    snapshot = FakeSnapshotClient()
+    manager = FakeManager()
+
+    service = WebullSandboxManualOrderService(
+        preflight=preflight,
+        snapshot_client=snapshot,
+        execution_manager=manager,
+        submission_armed=False,
+        clock=lambda: NOW,
+        client_order_id_factory=(
+            lambda: "manual-order-1"
+        ),
+        sleeper=sleeps.append,
+        cancel_poll_attempts=3,
+        cancel_poll_interval_seconds=1.1,
+        cancel_stabilization_seconds=2.1,
+    )
+
+    result = service.cancel(
+        client_order_id="order-1",
+        confirmation=(
+            CANCEL_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert result.status == "CANCELLED"
+
+    # First sleep is the pre-cancel stabilization window.
+    assert sleeps[0] == 2.1
+
+    assert manager.cancel_calls == [
+        (
+            "order-1",
+            "MANUAL_SANDBOX_TEST_CANCEL",
+        )
+    ]
+
+
+def test_terminal_order_is_not_cancelled_again():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    manager.reconcile_results = [
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="CANCELLED",
+            broker_status="CANCELLED",
+            manual_override=True,
+        )
+    ]
+
+    result = service.cancel(
+        client_order_id="order-1",
+        confirmation=(
+            CANCEL_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert result.status == "CANCELLED"
+    assert manager.cancel_calls == []

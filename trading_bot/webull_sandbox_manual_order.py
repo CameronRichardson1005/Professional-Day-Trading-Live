@@ -133,6 +133,7 @@ class WebullSandboxManualOrderService:
         sleeper: Callable[[float], None] | None = None,
         cancel_poll_attempts: int = 4,
         cancel_poll_interval_seconds: float = 1.1,
+        cancel_stabilization_seconds: float = 2.1,
     ) -> None:
         self.preflight = preflight
         self.snapshot_client = (
@@ -180,6 +181,15 @@ class WebullSandboxManualOrderService:
 
         self.cancel_poll_interval_seconds = float(
             cancel_poll_interval_seconds
+        )
+
+        if cancel_stabilization_seconds < 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_CANCEL_STABILIZATION_INTERVAL"
+            )
+
+        self.cancel_stabilization_seconds = float(
+            cancel_stabilization_seconds
         )
 
     def place(
@@ -291,6 +301,87 @@ class WebullSandboxManualOrderService:
         ):
             raise WebullSandboxManualOrderError(
                 "SANDBOX_CANCEL_CONFIRMATION_REQUIRED"
+            )
+
+        # First establish the broker's current state. This is
+        # deliberately read-only and prevents us from issuing a
+        # cancel against an already terminal order.
+        try:
+            current = (
+                self.execution_manager
+                .reconcile(
+                    client_order_id=key
+                )
+            )
+
+        except Exception as error:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_PRE_CANCEL_RECONCILIATION_FAILED:"
+                f"{error}"
+            ) from error
+
+        if current.status == "CANCELLED":
+            return current
+
+        if current.status == "FILLED":
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_ORDER_FILLED"
+            )
+
+        if current.status not in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+            "REPLACE_PENDING",
+        }:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_UNRESOLVED:"
+                f"{current.status}"
+            )
+
+        # Real sandbox testing showed that cancellation in the
+        # same instant as order acceptance can race Webull's
+        # internal order propagation. Give the accepted order a
+        # short bounded stabilization window before sending the
+        # cancellation request.
+        if self.cancel_stabilization_seconds:
+            self.sleeper(
+                self.cancel_stabilization_seconds
+            )
+
+        # Re-read after the stabilization window. The order may
+        # have filled or been cancelled meanwhile.
+        try:
+            current = (
+                self.execution_manager
+                .reconcile(
+                    client_order_id=key
+                )
+            )
+
+        except Exception as error:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_PRE_CANCEL_RECONCILIATION_FAILED:"
+                f"{error}"
+            ) from error
+
+        if current.status == "CANCELLED":
+            return current
+
+        if current.status == "FILLED":
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_ORDER_FILLED"
+            )
+
+        if current.status not in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+            "REPLACE_PENDING",
+        }:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_UNRESOLVED:"
+                f"{current.status}"
             )
 
         try:
