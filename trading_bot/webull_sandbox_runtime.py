@@ -6,12 +6,19 @@ from .config import (
     WEBULL_SANDBOX_ACCOUNT_ID,
     WEBULL_SANDBOX_APP_KEY,
     WEBULL_SANDBOX_APP_SECRET,
+    WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED,
 )
 from .webull_execution_ledger import (
     WebullExecutionLedger,
 )
+from .webull_execution_manager import (
+    WebullSandboxExecutionManager,
+)
 from .webull_sdk_safety import (
     build_quiet_trade_client,
+)
+from .webull_sandbox_manual_order import (
+    WebullSandboxManualOrderService,
 )
 from .webull_sandbox_broker import (
     SANDBOX_ENDPOINT,
@@ -155,3 +162,59 @@ def inspect_webull_sandbox_account(
     )
 
     return client.get_snapshot()
+
+
+
+def build_webull_sandbox_manual_order_service(
+) -> WebullSandboxManualOrderService:
+    """
+    Build the explicitly manual sandbox-order service.
+
+    Unlike the read-only preflight builder, this builder passes
+    the sandbox submission arming flag into the broker. Live
+    modes remain rejected by the underlying execution layer.
+    """
+
+    snapshot_client = (
+        WebullSandboxAccountSnapshotClient(
+            account_id=(
+                WEBULL_SANDBOX_ACCOUNT_ID
+            ),
+            execution_mode=(
+                WEBULL_EXECUTION_MODE
+            ),
+        )
+    )
+
+    broker = WebullSandboxBroker(
+        account_id=WEBULL_SANDBOX_ACCOUNT_ID,
+        execution_mode=WEBULL_EXECUTION_MODE,
+        submission_enabled=(
+            WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+        ),
+    )
+
+    ledger = WebullExecutionLedger(
+        WEBULL_EXECUTION_LEDGER_FILE
+    )
+
+    preflight = WebullSandboxPreflight(
+        snapshot_client=snapshot_client,
+        broker=broker,
+        ledger=ledger,
+    )
+
+    manager = WebullSandboxExecutionManager(
+        broker=broker,
+        ledger=ledger,
+        execution_mode=WEBULL_EXECUTION_MODE,
+    )
+
+    return WebullSandboxManualOrderService(
+        preflight=preflight,
+        snapshot_client=snapshot_client,
+        execution_manager=manager,
+        submission_armed=(
+            WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+        ),
+    )

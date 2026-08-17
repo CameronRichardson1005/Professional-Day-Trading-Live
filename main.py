@@ -5,7 +5,12 @@ from datetime import date
 
 from trading_bot.bot import TradingBot
 from trading_bot.market_calendar import nyse_trading_dates
+from trading_bot.webull_sandbox_manual_order import (
+    CONFIRMATION_PHRASE,
+    WebullSandboxManualOrderRequest,
+)
 from trading_bot.webull_sandbox_runtime import (
+    build_webull_sandbox_manual_order_service,
     build_webull_sandbox_preflight,
     discover_webull_sandbox_accounts,
     inspect_webull_sandbox_account,
@@ -29,6 +34,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-account-status",
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
+    "webull-sandbox-test-order",
     "webull-pnl",
     "production",
 )
@@ -242,6 +248,126 @@ def main() -> int:
             print(
                 "READ-ONLY — NO WEBULL ORDER "
                 "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
+        if mode == "webull-sandbox-test-order":
+            if len(sys.argv) != 6:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-test-order "
+                    "SYMBOL QUANTITY LIMIT_PRICE "
+                    "CONFIRM_SANDBOX_ORDER"
+                )
+                return 2
+
+            symbol = sys.argv[2]
+
+            try:
+                quantity = int(
+                    sys.argv[3]
+                )
+
+                limit_price = float(
+                    sys.argv[4]
+                )
+
+            except ValueError:
+                print(
+                    "Quantity must be an integer "
+                    "and limit price must be numeric."
+                )
+                return 2
+
+            confirmation = sys.argv[5]
+
+            if (
+                confirmation
+                != CONFIRMATION_PHRASE
+            ):
+                print(
+                    "Sandbox order confirmation "
+                    "phrase was incorrect."
+                )
+                return 2
+
+            try:
+                request = (
+                    WebullSandboxManualOrderRequest(
+                        symbol=symbol,
+                        quantity=quantity,
+                        limit_price=limit_price,
+                        confirmation=confirmation,
+                    )
+                )
+
+                service = (
+                    build_webull_sandbox_manual_order_service()
+                )
+
+                result = service.place(
+                    request
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX TEST ORDER FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "SANDBOX ONLY — LIVE TRADING "
+                    "WAS NOT USED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX TEST ORDER"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                f"Client order ID: "
+                f"{result.client_order_id}"
+            )
+            print(
+                f"Symbol: {result.symbol}"
+            )
+            print(
+                f"Quantity: {result.quantity}"
+            )
+            print(
+                f"Limit price: "
+                f"${result.limit_price:.4f}"
+            )
+            print(
+                f"Status: {result.status}"
+            )
+
+            if result.broker_order_id:
+                print(
+                    "Broker order ID: "
+                    f"{result.broker_order_id}"
+                )
+
+            if result.broker_status:
+                print(
+                    "Broker status: "
+                    f"{result.broker_status}"
+                )
+
+            print(
+                "--------------------------------"
+            )
+            print(
+                "SANDBOX ONLY — NO LIVE "
+                "WEBULL ORDER WAS PLACED"
             )
 
             return 0
