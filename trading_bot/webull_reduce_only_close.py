@@ -257,6 +257,10 @@ class WebullReduceOnlyCloseRecord:
     average_fill_price: float | None = None
 
     last_reconciled_at: datetime | None = None
+
+    position_reconciled: bool = False
+    position_reconciled_at: datetime | None = None
+
     last_error: str | None = None
 
 
@@ -280,6 +284,7 @@ class WebullReduceOnlyCloseLedger:
         "FILLED",
         "CANCEL_PENDING",
         "CANCELLED",
+        "POSITION_STATE_UNKNOWN",
         "REJECTED",
         "ERROR",
     }
@@ -452,6 +457,7 @@ class WebullReduceOnlyCloseLedger:
             record.created_at,
             record.updated_at,
             record.last_reconciled_at,
+            record.position_reconciled_at,
         ):
             if (
                 timestamp is not None
@@ -501,6 +507,15 @@ class WebullReduceOnlyCloseLedger:
                 else record.last_reconciled_at
                 .astimezone(UTC)
             ),
+            position_reconciled=bool(
+                record.position_reconciled
+            ),
+            position_reconciled_at=(
+                None
+                if record.position_reconciled_at is None
+                else record.position_reconciled_at
+                .astimezone(UTC)
+            ),
         )
 
     @classmethod
@@ -526,6 +541,12 @@ class WebullReduceOnlyCloseLedger:
         payload["last_reconciled_at"] = (
             cls._format_datetime(
                 record.last_reconciled_at
+            )
+        )
+
+        payload["position_reconciled_at"] = (
+            cls._format_datetime(
+                record.position_reconciled_at
             )
         )
 
@@ -613,6 +634,20 @@ class WebullReduceOnlyCloseLedger:
                     cls._parse_datetime(
                         payload.get(
                             "last_reconciled_at"
+                        ),
+                        required=False,
+                    )
+                ),
+                position_reconciled=bool(
+                    payload.get(
+                        "position_reconciled",
+                        False,
+                    )
+                ),
+                position_reconciled_at=(
+                    cls._parse_datetime(
+                        payload.get(
+                            "position_reconciled_at"
                         ),
                         required=False,
                     )
@@ -880,6 +915,49 @@ class WebullReduceOnlyCloseLedger:
                 average_fill_price
             ),
             last_reconciled_at=(
+                now.astimezone(UTC)
+            ),
+            position_reconciled=False,
+            position_reconciled_at=None,
+            updated_at=(
+                now.astimezone(UTC)
+            ),
+            last_error=None,
+        )
+
+        updated = self._validate(updated)
+        records[key] = updated
+        self.save(records)
+
+        return updated
+
+
+    def mark_position_reconciled(
+        self,
+        *,
+        client_order_id: str,
+    ) -> WebullReduceOnlyCloseRecord:
+        records = self.load()
+        key = client_order_id.strip()
+
+        record = records.get(key)
+
+        if record is None:
+            raise WebullReduceOnlyCloseError(
+                "CLOSE_ORDER_NOT_FOUND"
+            )
+
+        now = self.clock()
+
+        if now.tzinfo is None:
+            raise WebullReduceOnlyCloseError(
+                "CLOSE_LEDGER_CLOCK_NOT_AWARE"
+            )
+
+        updated = replace(
+            record,
+            position_reconciled=True,
+            position_reconciled_at=(
                 now.astimezone(UTC)
             ),
             updated_at=(

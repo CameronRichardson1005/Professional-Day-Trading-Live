@@ -52,6 +52,8 @@ class FakeOrderV3:
     def __init__(self):
         self.place_calls = []
         self.detail_calls = []
+        self.cancel_calls = []
+        self.cancel_error = None
 
         self.detail_payload = {
             "client_order_id": "close-1",
@@ -73,6 +75,27 @@ class FakeOrderV3:
         self.place_calls.append(
             (account_id, orders)
         )
+
+        return FakeResponse()
+
+    def cancel_order(
+        self,
+        account_id,
+        client_order_id,
+    ):
+        self.cancel_calls.append(
+            (
+                account_id,
+                client_order_id,
+            )
+        )
+
+        if self.cancel_error is not None:
+            raise self.cancel_error
+
+        self.detail_payload[
+            "status"
+        ] = "CANCELLED"
 
         return FakeResponse()
 
@@ -408,3 +431,247 @@ def test_price_mismatch_fails_closed(
             intent=close_intent(),
             management_armed=True,
         )
+
+
+
+def test_full_fill_position_reconciles_to_zero(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    trade_client.order_v3.detail_payload = {
+        "client_order_id": "close-1",
+        "order_id": "broker-close-1",
+        "status": "FILLED",
+        "symbol": "SOUN",
+        "side": "SELL",
+        "quantity": "1",
+        "limit_price": "6.9000",
+        "filled_quantity": "1",
+        "filled_price": "6.9100",
+    }
+
+    result = manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    assert result.status == "FILLED"
+
+    reconciled = manager.reconcile_position(
+        client_order_id="close-1",
+        positions=(),
+    )
+
+    assert reconciled.position_reconciled is True
+    assert reconciled.position_reconciled_at == NOW
+
+
+def test_partial_position_reconciliation(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    intent = build_reduce_only_close_intent(
+        client_order_id="close-1",
+        positions=(position(quantity=3),),
+        symbol="SOUN",
+        quantity=2,
+        limit_price=6.90,
+        created_at=NOW,
+    )
+
+    trade_client.order_v3.detail_payload = {
+        "client_order_id": "close-1",
+        "order_id": "broker-close-1",
+        "status": "PARTIALLY_FILLED",
+        "symbol": "SOUN",
+        "side": "SELL",
+        "quantity": "2",
+        "limit_price": "6.9000",
+        "filled_quantity": "1",
+        "filled_price": "6.9100",
+    }
+
+    result = manager.submit(
+        intent=intent,
+        management_armed=True,
+    )
+
+    assert result.status == "PARTIALLY_FILLED"
+
+    reconciled = manager.reconcile_position(
+        client_order_id="close-1",
+        positions=(
+            position(quantity=2),
+        ),
+    )
+
+    assert reconciled.position_reconciled is True
+
+
+def test_position_mismatch_fails_closed(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    trade_client.order_v3.detail_payload = {
+        "client_order_id": "close-1",
+        "order_id": "broker-close-1",
+        "status": "FILLED",
+        "symbol": "SOUN",
+        "side": "SELL",
+        "quantity": "1",
+        "limit_price": "6.9000",
+        "filled_quantity": "1",
+        "filled_price": "6.9100",
+    }
+
+    manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match="CLOSE_POSITION_QUANTITY_MISMATCH",
+    ):
+        manager.reconcile_position(
+            client_order_id="close-1",
+            positions=(
+                position(quantity=1),
+            ),
+        )
+
+    stored = ledger.load()["close-1"]
+
+    assert (
+        stored.status
+        == "POSITION_STATE_UNKNOWN"
+    )
+
+    assert stored.position_reconciled is False
+
+
+def test_position_reconcile_requires_fill(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match="CLOSE_HAS_NO_FILL_TO_RECONCILE",
+    ):
+        manager.reconcile_position(
+            client_order_id="close-1",
+            positions=(position(),),
+        )
+
+
+def test_unfilled_close_can_be_cancelled(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    result = manager.cancel(
+        client_order_id="close-1",
+    )
+
+    assert result.status == "CANCELLED"
+
+    assert trade_client.order_v3.cancel_calls == [
+        (
+            "sandbox-account",
+            "close-1",
+        )
+    ]
+
+
+def test_partially_filled_close_can_be_cancelled(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    trade_client.order_v3.detail_payload = {
+        "client_order_id": "close-1",
+        "order_id": "broker-close-1",
+        "status": "PARTIALLY_FILLED",
+        "symbol": "SOUN",
+        "side": "SELL",
+        "quantity": "1",
+        "limit_price": "6.9000",
+        "filled_quantity": "0.5",
+        "filled_price": "6.9100",
+    }
+
+    manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    result = manager.cancel(
+        client_order_id="close-1",
+    )
+
+    assert result.status == "CANCELLED"
+    assert result.filled_quantity == 0.5
+
+
+def test_ambiguous_close_cancel_not_retried(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    trade_client.order_v3.cancel_error = (
+        TimeoutError(
+            "simulated cancellation timeout"
+        )
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match="CLOSE_CANCELLATION_FAILED",
+    ):
+        manager.cancel(
+            client_order_id="close-1",
+        )
+
+    assert len(
+        trade_client.order_v3.cancel_calls
+    ) == 1
+
+    stored = ledger.load()["close-1"]
+
+    assert (
+        stored.status
+        == "BROKER_STATE_UNKNOWN"
+    )

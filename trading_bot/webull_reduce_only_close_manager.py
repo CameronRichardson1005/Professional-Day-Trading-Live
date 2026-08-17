@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .webull_account_parser import (
+    ParsedWebullPosition,
+)
 from .webull_execution import (
     WebullExecutionMode,
     require_safe_execution_mode,
@@ -46,6 +49,12 @@ def _close_status(
         "EXPIRED",
     }:
         return "CANCELLED"
+
+    if status in {
+        "CANCEL_PENDING",
+        "PENDING_CANCEL",
+    }:
+        return "CANCEL_PENDING"
 
     if status in {
         "FAILED",
@@ -229,6 +238,206 @@ class WebullSandboxReduceOnlyCloseManager:
                 state.average_fill_price
             ),
         )
+
+    def reconcile_position(
+        self,
+        *,
+        client_order_id: str,
+        positions: tuple[
+            ParsedWebullPosition,
+            ...
+        ] | list[ParsedWebullPosition],
+    ) -> WebullReduceOnlyCloseRecord:
+        """
+        Confirm Webull position quantity reflects the fills
+        already reported by Order Detail.
+
+        Exact expected quantity:
+            original confirmed position
+            - broker-confirmed SELL fills
+
+        Any unexplained difference fails closed because it may
+        represent a manual trade, stale account data, or another
+        process changing the position.
+        """
+
+        key = client_order_id.strip()
+
+        if not key:
+            raise WebullReduceOnlyCloseManagerError(
+                "CLIENT_ORDER_ID_REQUIRED"
+            )
+
+        local = self.ledger.load().get(key)
+
+        if local is None:
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_ORDER_NOT_FOUND"
+            )
+
+        if local.filled_quantity <= 0:
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_HAS_NO_FILL_TO_RECONCILE"
+            )
+
+        expected = round(
+            float(
+                local.confirmed_position_quantity
+            )
+            - float(local.filled_quantity),
+            5,
+        )
+
+        if expected < -0.00001:
+            self.ledger.mark_state(
+                client_order_id=key,
+                status="POSITION_STATE_UNKNOWN",
+                last_error=(
+                    "CLOSE_EXPECTED_POSITION_NEGATIVE"
+                ),
+            )
+
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_EXPECTED_POSITION_NEGATIVE"
+            )
+
+        matches = [
+            item
+            for item in positions
+            if item.symbol.strip().upper()
+            == local.symbol
+        ]
+
+        if len(matches) > 1:
+            self.ledger.mark_state(
+                client_order_id=key,
+                status="POSITION_STATE_UNKNOWN",
+                last_error=(
+                    "CLOSE_DUPLICATE_POSITION_RECORD"
+                ),
+            )
+
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_DUPLICATE_POSITION_RECORD"
+            )
+
+        observed = (
+            0.0
+            if not matches
+            else float(
+                matches[0].quantity
+            )
+        )
+
+        if abs(
+            observed - expected
+        ) > 0.00001:
+            reason = (
+                "CLOSE_POSITION_QUANTITY_MISMATCH:"
+                f"expected={expected}:"
+                f"observed={observed}"
+            )
+
+            self.ledger.mark_state(
+                client_order_id=key,
+                status="POSITION_STATE_UNKNOWN",
+                last_error=reason,
+            )
+
+            raise WebullReduceOnlyCloseManagerError(
+                reason
+            )
+
+        return (
+            self.ledger
+            .mark_position_reconciled(
+                client_order_id=key
+            )
+        )
+
+    def cancel(
+        self,
+        *,
+        client_order_id: str,
+    ) -> WebullReduceOnlyCloseRecord:
+        """
+        Rescue-cancel an outstanding reduce-only close order.
+
+        Like normal order cancellation, this deliberately does
+        not require either entry or management arming. Disarming
+        trading must never trap an outstanding broker order.
+        """
+
+        key = client_order_id.strip()
+
+        if not key:
+            raise WebullReduceOnlyCloseManagerError(
+                "CLIENT_ORDER_ID_REQUIRED"
+            )
+
+        current = self.reconcile(
+            client_order_id=key
+        )
+
+        if current.status in {
+            "CANCELLED",
+            "FILLED",
+        }:
+            return current
+
+        if current.status not in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+        }:
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_ORDER_NOT_CANCELLABLE:"
+                f"{current.status}"
+            )
+
+        self.ledger.mark_state(
+            client_order_id=key,
+            status="CANCEL_PENDING",
+            last_error=None,
+        )
+
+        try:
+            self.broker.cancel_order(
+                client_order_id=key
+            )
+
+        except WebullSandboxBrokerError as error:
+            self.ledger.mark_state(
+                client_order_id=key,
+                status=(
+                    "BROKER_STATE_UNKNOWN"
+                    if error.ambiguous
+                    else "ERROR"
+                ),
+                last_error=str(error),
+            )
+
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_CANCELLATION_FAILED:"
+                f"{error}"
+            ) from error
+
+        result = self.reconcile(
+            client_order_id=key
+        )
+
+        if result.status in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+        }:
+            return self.ledger.mark_state(
+                client_order_id=key,
+                status="CANCEL_PENDING",
+                last_error=None,
+            )
+
+        return result
 
     def submit(
         self,
