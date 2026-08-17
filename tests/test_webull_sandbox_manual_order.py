@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from trading_bot.webull_sandbox_manual_order import (
+    CANCEL_CONFIRMATION_PHRASE,
     CONFIRMATION_PHRASE,
     WebullSandboxManualOrderError,
     WebullSandboxManualOrderRequest,
@@ -60,6 +61,7 @@ class FakeSnapshotClient:
 class FakeManager:
     def __init__(self):
         self.calls = []
+        self.cancel_calls = []
 
     def submit(
         self,
@@ -81,6 +83,30 @@ class FakeManager:
             status="SUBMITTED",
             broker_order_id="broker-1",
             broker_status="SUBMITTED",
+        )
+
+    def cancel_manual(
+        self,
+        *,
+        client_order_id,
+        reason,
+    ):
+        self.cancel_calls.append(
+            (
+                client_order_id,
+                reason,
+            )
+        )
+
+        return SimpleNamespace(
+            client_order_id=client_order_id,
+            symbol="SOUN",
+            quantity=1,
+            limit_price=5.25,
+            status="CANCELLED",
+            broker_order_id="broker-1",
+            broker_status="CANCELLED",
+            manual_override=True,
         )
 
 
@@ -207,3 +233,59 @@ def test_manual_order_runs_preflight_and_safety_path():
     )
 
     assert result.status == "SUBMITTED"
+
+
+
+def test_cancel_requires_confirmation():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    with pytest.raises(
+        WebullSandboxManualOrderError,
+        match=(
+            "SANDBOX_CANCEL_CONFIRMATION_REQUIRED"
+        ),
+    ):
+        service.cancel(
+            client_order_id="order-1",
+            confirmation="WRONG",
+        )
+
+    assert preflight.calls == 0
+    assert manager.cancel_calls == []
+
+
+def test_cancel_does_not_require_new_order_arm():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    result = service.cancel(
+        client_order_id="order-1",
+        confirmation=(
+            CANCEL_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert preflight.calls == 1
+
+    assert manager.cancel_calls == [
+        (
+            "order-1",
+            "MANUAL_SANDBOX_TEST_CANCEL",
+        )
+    ]
+
+    assert result.status == "CANCELLED"
+    assert result.manual_override is True

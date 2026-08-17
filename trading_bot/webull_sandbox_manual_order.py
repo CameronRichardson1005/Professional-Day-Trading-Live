@@ -23,6 +23,7 @@ from .webull_sandbox_preflight import (
 
 
 CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_ORDER"
+CANCEL_CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_CANCEL"
 
 _SYMBOL_PATTERN = re.compile(
     r"^[A-Z][A-Z0-9.-]{0,14}$"
@@ -228,5 +229,50 @@ class WebullSandboxManualOrderService:
                 account=(
                     snapshot.account_state
                 ),
+            )
+        )
+
+
+    def cancel(
+        self,
+        *,
+        client_order_id: str,
+        confirmation: str,
+    ) -> WebullExecutionRecord:
+        """
+        Manually cancel one locally tracked sandbox order.
+
+        Cancellation remains available even when new order
+        placement has been disarmed.
+        """
+
+        key = client_order_id.strip()
+
+        if not key:
+            raise WebullSandboxManualOrderError(
+                "CLIENT_ORDER_ID_REQUIRED"
+            )
+
+        if (
+            confirmation.strip()
+            != CANCEL_CONFIRMATION_PHRASE
+        ):
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_CONFIRMATION_REQUIRED"
+            )
+
+        # Reconcile account, broker, and local ledger state
+        # immediately before attempting cancellation.
+        report = self.preflight.run()
+
+        if not report.allowed:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_PREFLIGHT_NOT_ALLOWED"
+            )
+
+        return (
+            self.execution_manager.cancel_manual(
+                client_order_id=key,
+                reason="MANUAL_SANDBOX_TEST_CANCEL",
             )
         )

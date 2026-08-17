@@ -391,8 +391,9 @@ class WebullSandboxBroker:
         *,
         client_order_id: str,
     ) -> None:
-        self._require_submission_enabled()
-
+        # Cancellation intentionally remains available when
+        # new-order submission is disarmed. Disarming entries
+        # must never trap an already-open order.
         key = client_order_id.strip()
 
         if not key:

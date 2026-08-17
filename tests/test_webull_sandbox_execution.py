@@ -534,3 +534,29 @@ def test_transport_uncertainty_is_not_retried(
     assert len(
         trade_client.order_v3.place_calls
     ) == 1
+
+
+
+def test_cancel_available_when_submission_disarmed():
+    trade_client = FakeTradeClient()
+
+    broker = WebullSandboxBroker(
+        trade_client=trade_client,
+        account_id="sandbox-account",
+        execution_mode="SANDBOX",
+        submission_enabled=False,
+    )
+
+    broker.cancel_order(
+        client_order_id="order-1"
+    )
+
+    assert (
+        trade_client.order_v3.cancel_calls
+        == [
+            (
+                "sandbox-account",
+                "order-1",
+            )
+        ]
+    )

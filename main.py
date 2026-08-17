@@ -6,6 +6,7 @@ from datetime import date
 from trading_bot.bot import TradingBot
 from trading_bot.market_calendar import nyse_trading_dates
 from trading_bot.webull_sandbox_manual_order import (
+    CANCEL_CONFIRMATION_PHRASE,
     CONFIRMATION_PHRASE,
     WebullSandboxManualOrderRequest,
 )
@@ -34,6 +35,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-account-status",
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
+    "webull-sandbox-test-cancel",
     "webull-sandbox-test-order",
     "webull-pnl",
     "production",
@@ -248,6 +250,99 @@ def main() -> int:
             print(
                 "READ-ONLY — NO WEBULL ORDER "
                 "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
+        if mode == "webull-sandbox-test-cancel":
+            if len(sys.argv) != 4:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-test-cancel "
+                    "CLIENT_ORDER_ID "
+                    "CONFIRM_SANDBOX_CANCEL"
+                )
+                return 2
+
+            client_order_id = (
+                sys.argv[2].strip()
+            )
+
+            confirmation = (
+                sys.argv[3].strip()
+            )
+
+            if (
+                confirmation
+                != CANCEL_CONFIRMATION_PHRASE
+            ):
+                print(
+                    "Sandbox cancel confirmation "
+                    "phrase was incorrect."
+                )
+                return 2
+
+            try:
+                service = (
+                    build_webull_sandbox_manual_order_service()
+                )
+
+                result = service.cancel(
+                    client_order_id=(
+                        client_order_id
+                    ),
+                    confirmation=confirmation,
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX TEST CANCEL FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "SANDBOX ONLY — LIVE TRADING "
+                    "WAS NOT USED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX TEST CANCEL"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "Client order ID: "
+                f"{result.client_order_id}"
+            )
+            print(
+                f"Symbol: {result.symbol}"
+            )
+            print(
+                f"Status: {result.status}"
+            )
+
+            if result.broker_status:
+                print(
+                    "Broker status: "
+                    f"{result.broker_status}"
+                )
+
+            print(
+                "Manual override: "
+                f"{result.manual_override}"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "SANDBOX ONLY — NO LIVE "
+                "WEBULL ORDER WAS MODIFIED"
             )
 
             return 0
