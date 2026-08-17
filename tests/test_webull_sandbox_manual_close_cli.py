@@ -6,6 +6,7 @@ import main as main_module
 class FakeCloseService:
     def __init__(self):
         self.calls = []
+        self.cancel_calls = []
 
     def close(self, request):
         self.calls.append(request)
@@ -21,6 +22,33 @@ class FakeCloseService:
             position_reconciled=False,
             broker_order_id="broker-close-1",
             broker_status="SUBMITTED",
+        )
+
+
+    def cancel(
+        self,
+        *,
+        client_order_id,
+        confirmation,
+    ):
+        self.cancel_calls.append(
+            (
+                client_order_id,
+                confirmation,
+            )
+        )
+
+        return SimpleNamespace(
+            client_order_id=client_order_id,
+            symbol="SOUN",
+            side="SELL",
+            quantity=1,
+            limit_price=6.90,
+            status="CANCELLED",
+            filled_quantity=0.0,
+            position_reconciled=False,
+            broker_order_id="broker-close-1",
+            broker_status="CANCELLED",
         )
 
 
@@ -217,3 +245,166 @@ def test_close_cli_reports_service_failure(
         "SANDBOX_ORDER_MANAGEMENT_NOT_ARMED"
         in output
     )
+
+
+
+def test_close_cancel_cli_calls_rescue_service(
+    monkeypatch,
+    capsys,
+):
+    install_common(monkeypatch)
+
+    service = FakeCloseService()
+
+    monkeypatch.setattr(
+        main_module,
+        "build_webull_sandbox_manual_close_service",
+        lambda: service,
+    )
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "main.py",
+            "webull-sandbox-test-close-cancel",
+            "close-1",
+            "CONFIRM_SANDBOX_CLOSE_CANCEL",
+        ],
+    )
+
+    assert main_module.main() == 0
+
+    output = capsys.readouterr().out
+
+    assert (
+        "WEBULL SANDBOX TEST CLOSE CANCEL"
+        in output
+    )
+
+    assert "Status: CANCELLED" in output
+
+    assert service.cancel_calls == [
+        (
+            "close-1",
+            "CONFIRM_SANDBOX_CLOSE_CANCEL",
+        )
+    ]
+
+
+def test_close_cancel_cli_rejects_wrong_confirmation(
+    monkeypatch,
+    capsys,
+):
+    install_common(monkeypatch)
+
+    builder_calls = []
+
+    monkeypatch.setattr(
+        main_module,
+        "build_webull_sandbox_manual_close_service",
+        lambda: builder_calls.append(True),
+    )
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "main.py",
+            "webull-sandbox-test-close-cancel",
+            "close-1",
+            "WRONG",
+        ],
+    )
+
+    assert main_module.main() == 2
+
+    output = capsys.readouterr().out
+
+    assert (
+        "confirmation phrase was incorrect"
+        in output
+    )
+
+    assert builder_calls == []
+
+
+def test_close_cancel_cli_rejects_missing_arguments(
+    monkeypatch,
+    capsys,
+):
+    install_common(monkeypatch)
+
+    builder_calls = []
+
+    monkeypatch.setattr(
+        main_module,
+        "build_webull_sandbox_manual_close_service",
+        lambda: builder_calls.append(True),
+    )
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "main.py",
+            "webull-sandbox-test-close-cancel",
+        ],
+    )
+
+    assert main_module.main() == 2
+
+    output = capsys.readouterr().out
+
+    assert (
+        "CONFIRM_SANDBOX_CLOSE_CANCEL"
+        in output
+    )
+
+    assert builder_calls == []
+
+
+def test_close_cancel_cli_reports_service_failure(
+    monkeypatch,
+    capsys,
+):
+    install_common(monkeypatch)
+
+    class FailingCancelService:
+        def cancel(
+            self,
+            *,
+            client_order_id,
+            confirmation,
+        ):
+            raise RuntimeError(
+                "BROKER_STATE_UNKNOWN"
+            )
+
+    monkeypatch.setattr(
+        main_module,
+        "build_webull_sandbox_manual_close_service",
+        lambda: FailingCancelService(),
+    )
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "main.py",
+            "webull-sandbox-test-close-cancel",
+            "close-1",
+            "CONFIRM_SANDBOX_CLOSE_CANCEL",
+        ],
+    )
+
+    assert main_module.main() == 1
+
+    output = capsys.readouterr().out
+
+    assert (
+        "WEBULL SANDBOX TEST CLOSE CANCEL FAILED"
+        in output
+    )
+
+    assert "BROKER_STATE_UNKNOWN" in output
