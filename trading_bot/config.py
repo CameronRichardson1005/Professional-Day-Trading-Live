@@ -10,55 +10,13 @@ ENV_FILE = PROJECT_ROOT / ".env"
 load_dotenv(dotenv_path=ENV_FILE, override=False)
 
 
-API_KEY = os.getenv(
-    "ALPACA_API_KEY",
-    "",
-).strip()
-
-API_SECRET = os.getenv(
-    "ALPACA_API_SECRET",
-    "",
-).strip()
-
-# Alpaca is an optional fallback/research provider.
+# Webull is the sole market-data provider.
 #
-# Missing Alpaca credentials must not prevent the Webull-primary
-# production bot from starting. AlpacaClient validates credentials
-# only when an Alpaca network request is actually attempted.
-BASE_URL = "https://data.alpaca.markets/v2/stocks/bars"
-
-ALPACA_DATA_FEED = os.getenv(
-    "ALPACA_DATA_FEED",
-    "sip",
-).strip().lower()
-
-if ALPACA_DATA_FEED not in {"iex", "sip"}:
-    raise RuntimeError(
-        "ALPACA_DATA_FEED must be 'iex' or 'sip'."
-    )
-
-MARKET_DATA_FEED = ALPACA_DATA_FEED
-
-# Primary market-data provider for production decisions.
-#
-# Webull is the default because production strategy market data
-# and the trading workflow are Webull-based.
-#
-# Alpaca remains available as a controlled fallback and for
-# research/source comparisons.
-MARKET_DATA_PROVIDER = os.getenv(
-    "MARKET_DATA_PROVIDER",
-    "webull",
-).strip().lower()
-
-if MARKET_DATA_PROVIDER not in {
-    "webull",
-    "alpaca",
-}:
-    raise RuntimeError(
-        "MARKET_DATA_PROVIDER must be "
-        "'webull' or 'alpaca'."
-    )
+# These compatibility constants remain temporarily because
+# existing internal method signatures use data_feed/provider
+# arguments. They no longer select Alpaca, IEX, or SIP.
+MARKET_DATA_FEED = "webull"
+MARKET_DATA_PROVIDER = "webull"
 
 
 # Standalone live Manipulation strategy.

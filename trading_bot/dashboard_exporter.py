@@ -426,11 +426,10 @@ class DashboardExporter:
                 + ", ".join(sorted(supported_sources))
             )
 
-        data_feed = data_feed.strip().lower()
-        if data_feed not in {"iex", "sip"}:
-            raise ValueError(
-                "Dashboard sessions must use IEX or SIP market data."
-            )
+        # Webull is now the sole market-data provider.
+        # data_feed remains in the method signature temporarily
+        # for compatibility with older callers.
+        data_feed = "webull"
 
         symbols = [
             cls._symbol_payload(

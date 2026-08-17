@@ -40,7 +40,7 @@ def reconcile_minute_bars(
     fetched_bars: Iterable[dict],
 ) -> list[dict]:
     """
-    Reconcile completed one-minute bars by Alpaca timestamp.
+    Reconcile completed one-minute bars by market-data timestamp.
 
     Existing bars provide the current local history.
 
@@ -63,7 +63,7 @@ def reconcile_minute_bars(
             unique_bars[timestamp] = dict(bar)
 
     # Reconciliation fetch comes second deliberately.
-    # A later Alpaca representation replaces an older
+    # A later market-data representation replaces an older
     # representation for the same completed minute.
     for bar in fetched_bars:
         timestamp = str(
@@ -84,7 +84,7 @@ def aggregate_completed_5m_candles(
     evaluation_end: datetime | None = None,
 ) -> list[QuickFlipCandle]:
     """
-    Convert Alpaca 1-minute bars into completed 5-minute
+    Convert one-minute market-data bars into completed 5-minute
     candles.
 
     A 5-minute candle is emitted only when all five
@@ -142,7 +142,7 @@ def aggregate_completed_5m_candles(
             {},
         )
 
-        # If Alpaca reconciliation gives us the same
+        # If market-data reconciliation gives us the same
         # minute twice, keep the latest representation.
         bucket[timestamp.replace(
             second=0,

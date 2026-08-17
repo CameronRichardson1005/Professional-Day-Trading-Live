@@ -2367,7 +2367,7 @@ class SheetsClient:
             date_str,
             completed_at,
             os.getenv("TRADING_RUN_MODE", "MANUAL"),
-            os.getenv("ALPACA_DATA_FEED", "iex").upper(),
+            "WEBULL",
             "COMPLETE",
             "COMPLETE",
             (

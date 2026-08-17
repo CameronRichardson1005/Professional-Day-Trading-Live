@@ -68,7 +68,7 @@ def build_atr_by_date(
 
 def build_research_dataset(
     *,
-    alpaca,
+    market_data,
     symbols: list[str],
     start_date: str,
     end_date: str,
@@ -84,7 +84,7 @@ def build_research_dataset(
     - historical daily bars for prior-session ATR14
 
     No Sheets writes.
-    No Webull.
+    Read-only Webull market data only.
     No live strategy state.
     """
     symbols_csv = ",".join(symbols)
@@ -104,7 +104,7 @@ def build_research_dataset(
     ).strftime("%Y-%m-%d")
 
     opening_bars = (
-        alpaca.get_historical_opening_15min_bars(
+        market_data.get_historical_opening_15min_bars(
             symbols_csv=symbols_csv,
             start_date=history_start,
             end_date=end_date,
@@ -150,7 +150,7 @@ def build_research_dataset(
     )
 
     intraday_bars = (
-        alpaca.get_historical_5min_bars(
+        market_data.get_historical_5min_bars(
             symbols_csv=symbols_csv,
             start_iso=intraday_start,
             end_iso=intraday_end,
@@ -159,11 +159,9 @@ def build_research_dataset(
     )
 
     daily_bars = (
-        alpaca.get_historical_daily_bars(
+        market_data.get_daily_history(
             symbols_csv=symbols_csv,
-            start_date=history_start,
-            end_date=end_date,
-            feed=feed,
+            count=400,
         )
     )
 

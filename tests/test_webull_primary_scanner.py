@@ -66,33 +66,6 @@ class FailingWebull:
         )
 
 
-class FailingAlpaca:
-    def get_scanner_statistics(
-            self,
-            **kwargs,
-    ):
-        raise AssertionError(
-            "Alpaca should not be used "
-            "when Webull succeeds."
-        )
-
-
-class FallbackAlpaca:
-    def __init__(self):
-        self.statistics_calls = 0
-
-    def get_scanner_statistics(
-            self,
-            **kwargs,
-    ):
-        self.statistics_calls += 1
-        return _statistics()
-
-    def get_opening_reliability(
-            self,
-            **kwargs,
-    ):
-        return None
 
 
 def test_production_scanner_prefers_webull(
@@ -111,8 +84,6 @@ def test_production_scanner_prefers_webull(
     bot.webull_strategy_market_data = (
         webull
     )
-
-    bot.alpaca = FailingAlpaca()
 
     selected = (
         bot.refresh_symbols_for_date(
@@ -133,7 +104,7 @@ def test_production_scanner_prefers_webull(
     )
 
 
-def test_webull_failure_falls_back_to_alpaca(
+def test_webull_failure_keeps_existing_symbols(
         monkeypatch,
 ):
     monkeypatch.setattr(
@@ -144,27 +115,20 @@ def test_webull_failure_falls_back_to_alpaca(
 
     bot = TradingBot()
 
+    original_symbols = list(
+        bot.scanner.current_symbols
+    )
+
     bot.webull_strategy_market_data = (
         FailingWebull()
     )
 
-    alpaca = FallbackAlpaca()
-    bot.alpaca = alpaca
-
-    bot.refresh_symbols_for_date(
+    selected = bot.refresh_symbols_for_date(
         "2026-08-13"
     )
 
-    assert (
-        bot.scanner_data_source
-        == "ALPACA"
-    )
-
-    assert (
-        alpaca.statistics_calls
-        == 1
-    )
-
+    assert selected == original_symbols
+    assert bot.scanner_data_source is None
 
 def test_webull_native_opening_reliability(
         monkeypatch,

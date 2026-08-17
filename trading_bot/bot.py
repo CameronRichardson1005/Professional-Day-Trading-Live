@@ -28,7 +28,6 @@ from .webull_approval_store import (
     WebullApprovalStore,
     WebullApprovalStoreError,
 )
-from .alpaca_client import AlpacaClient
 from .webull_strategy_market_data import (
     WebullStrategyMarketData,
 )
@@ -93,8 +92,6 @@ class TradingBot:
         }
 
         self.symbols_csv = ",".join(self.stocks.keys())
-
-        self.alpaca = AlpacaClient()
 
         # Lazily initialized read-only Webull market-data
         # adapter for live Manipulation and Quick Flip.
@@ -246,7 +243,7 @@ class TradingBot:
             data_feed: str = MARKET_DATA_FEED,
     ) -> dict:
         """
-        Compare scanner ranking models across Alpaca and Webull.
+        Compare scanner ranking models using Webull history.
 
         Research only:
         - does not alter self.scanner
@@ -347,23 +344,6 @@ class TradingBot:
             )
 
             source_statistics = {}
-
-            try:
-                source_statistics[
-                    "ALPACA"
-                ] = (
-                    self.alpaca.get_scanner_statistics(
-                        symbols_csv=universe_csv,
-                        date_str=date_str,
-                        feed=data_feed,
-                    )
-                )
-
-            except Exception as error:
-                print(
-                    f"{date_str} Alpaca research "
-                    f"failed: {error}"
-                )
 
             if webull_history is not None:
                 try:
@@ -1035,12 +1015,11 @@ class TradingBot:
         """
         Refresh the production trading universe.
 
-        Webull is the default primary scanner source.
-        Alpaca remains a controlled fallback.
+        Webull is the sole scanner and reliability source.
 
-        Scanner ranking rules are unchanged here. This method only
-        changes the market-data provider so provider migration can
-        be evaluated separately from formula changes.
+        Scanner ranking rules are unchanged. If Webull market data is
+        unavailable, the existing ticker universe is retained rather
+        than silently switching providers.
         """
         self.scanner_statistics = None
         self.symbol_reliability = None
@@ -1063,12 +1042,7 @@ class TradingBot:
             )
         )
 
-        source_order = (
-            ("WEBULL", "ALPACA")
-            if MARKET_DATA_PROVIDER
-            == "webull"
-            else ("ALPACA", "WEBULL")
-        )
+        source_order = ("WEBULL",)
 
         statistics = None
         reliability = None
@@ -1076,33 +1050,20 @@ class TradingBot:
 
         for source in source_order:
             try:
-                if source == "WEBULL":
-                    market_data = (
-                        self
-                        ._get_webull_strategy_market_data()
-                    )
+                market_data = (
+                    self
+                    ._get_webull_strategy_market_data()
+                )
 
-                    statistics = (
-                        market_data
-                        .get_scanner_statistics(
-                            symbols_csv=(
-                                candidate_csv
-                            ),
-                            date_str=date_str,
-                        )
+                statistics = (
+                    market_data
+                    .get_scanner_statistics(
+                        symbols_csv=(
+                            candidate_csv
+                        ),
+                        date_str=date_str,
                     )
-
-                else:
-                    statistics = (
-                        self.alpaca
-                        .get_scanner_statistics(
-                            symbols_csv=(
-                                candidate_csv
-                            ),
-                            date_str=date_str,
-                            feed=data_feed,
-                        )
-                    )
+                )
 
                 if not statistics:
                     raise RuntimeError(
@@ -1123,28 +1084,15 @@ class TradingBot:
             reliability = None
 
             try:
-                if source == "WEBULL":
-                    reliability = (
-                        market_data
-                        .get_opening_reliability(
-                            symbols_csv=(
-                                reliability_csv
-                            ),
-                            date_str=date_str,
-                        )
+                reliability = (
+                    market_data
+                    .get_opening_reliability(
+                        symbols_csv=(
+                            reliability_csv
+                        ),
+                        date_str=date_str,
                     )
-
-                else:
-                    reliability = (
-                        self.alpaca
-                        .get_opening_reliability(
-                            symbols_csv=(
-                                reliability_csv
-                            ),
-                            date_str=date_str,
-                            feed=data_feed,
-                        )
-                    )
+                )
 
             except Exception as reliability_error:
                 print(
@@ -2128,22 +2076,13 @@ class TradingBot:
         )
 
         try:
-            if MARKET_DATA_PROVIDER == "webull":
-                recent_bars = (
-                    self
-                    ._get_webull_strategy_market_data()
-                    .test_connection(
-                        self.symbols_csv
-                    )
+            recent_bars = (
+                self
+                ._get_webull_strategy_market_data()
+                .test_connection(
+                    self.symbols_csv
                 )
-
-            else:
-                recent_bars = (
-                    self.alpaca
-                    .test_connection(
-                        self.symbols_csv
-                    )
-                )
+            )
 
             successful_symbols = [
                 symbol

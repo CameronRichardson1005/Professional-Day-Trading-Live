@@ -3,18 +3,18 @@ import trading_bot.bot as bot_module
 
 
 @pytest.fixture(autouse=True)
-def _use_alpaca_scanner_for_legacy_tests(
+def _use_webull_scanner_for_tests(
         monkeypatch,
 ):
     """
-    Preserve these existing tests as Alpaca-fallback tests.
+    Use controlled Webull market data for scanner tests.
 
     Webull-primary routing has dedicated tests elsewhere.
     """
     monkeypatch.setattr(
         bot_module,
         "MARKET_DATA_PROVIDER",
-        "alpaca",
+        "webull",
     )
 
 
@@ -41,7 +41,7 @@ def test_bot_refreshes_symbols_from_scanner_results():
         current_symbols=["CORE"],
     )
 
-    class FakeAlpaca:
+    class FakeWebull:
         def __init__(self):
             self.requested_symbols = None
 
@@ -49,8 +49,7 @@ def test_bot_refreshes_symbols_from_scanner_results():
                 self,
                 symbols_csv,
                 date_str,
-                feed,
-        ):
+                ):
             self.requested_symbols = symbols_csv
 
             return [
@@ -64,7 +63,7 @@ def test_bot_refreshes_symbols_from_scanner_results():
                 ),
             ]
 
-    bot.alpaca = FakeAlpaca()
+    bot.webull_strategy_market_data = FakeWebull()
 
     selected = bot.refresh_symbols_for_date(
         "2026-07-27"
@@ -73,7 +72,7 @@ def test_bot_refreshes_symbols_from_scanner_results():
     assert selected == ["CORE", "SNAP"]
     assert list(bot.stocks) == ["CORE", "SNAP"]
     assert bot.symbols_csv == "CORE,SNAP"
-    assert bot.alpaca.requested_symbols == ",".join(
+    assert bot.webull_strategy_market_data.requested_symbols == ",".join(
         CANDIDATE_TICKERS
     )
     assert [
@@ -102,13 +101,13 @@ def test_all_scanner_sources_failure_uses_current_symbols():
         current_symbols=["CORE"],
     )
 
-    class FailingAlpaca:
+    class FailingWebull:
         def get_scanner_statistics(
                 self,
                 **kwargs,
         ):
             raise RuntimeError(
-                "CONTROLLED ALPACA FAILURE"
+                "CONTROLLED WEBULL FAILURE"
             )
 
     class FailingWebull:
@@ -120,7 +119,7 @@ def test_all_scanner_sources_failure_uses_current_symbols():
                 "CONTROLLED WEBULL FAILURE"
             )
 
-    bot.alpaca = FailingAlpaca()
+    bot.webull_strategy_market_data = FailingWebull()
 
     # Prevent this unit test from ever contacting
     # the real Webull API.

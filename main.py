@@ -168,11 +168,11 @@ def main() -> int:
         # Native-timeframe live workflow
         #
         # Manipulation:
-        #   Alpaca native 15Min opening candle
+        #   Webull native 15Min opening candle
         #
         # Quick Flip:
-        #   Alpaca native 15Min opening box
-        #   Alpaca native completed 5Min candles
+        #   Webull native 15Min opening box
+        #   Webull native completed 5Min candles
         # -----------------------------------------
         elif mode == "live":
             if len(sys.argv) != 2:
