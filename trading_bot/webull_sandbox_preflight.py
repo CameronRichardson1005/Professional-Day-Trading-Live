@@ -51,6 +51,7 @@ class WebullSandboxSnapshot:
     open_order_count: int
     open_client_order_ids: tuple[str, ...]
     positions: tuple = ()
+    open_orders: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -493,6 +494,9 @@ class WebullSandboxAccountSnapshotClient:
             ),
             positions=tuple(
                 positions
+            ),
+            open_orders=tuple(
+                open_orders
             ),
         )
 
