@@ -62,6 +62,19 @@ class FakeManager:
     def __init__(self):
         self.calls = []
         self.cancel_calls = []
+        self.reconcile_calls = []
+        self.reconcile_results = []
+        self.cancel_result = SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            quantity=1,
+            limit_price=5.25,
+            status="CANCELLED",
+            broker_order_id="broker-1",
+            broker_status="CANCELLED",
+            manual_override=True,
+        )
+        self.mark_pending_calls = []
 
     def submit(
         self,
@@ -98,15 +111,34 @@ class FakeManager:
             )
         )
 
+        return self.cancel_result
+
+    def reconcile(
+        self,
+        *,
+        client_order_id,
+    ):
+        self.reconcile_calls.append(
+            client_order_id
+        )
+
+        if self.reconcile_results:
+            return self.reconcile_results.pop(0)
+
+        return self.cancel_result
+
+    def mark_cancel_pending(
+        self,
+        *,
+        client_order_id,
+    ):
+        self.mark_pending_calls.append(
+            client_order_id
+        )
+
         return SimpleNamespace(
             client_order_id=client_order_id,
-            symbol="SOUN",
-            quantity=1,
-            limit_price=5.25,
-            status="CANCELLED",
-            broker_order_id="broker-1",
-            broker_status="CANCELLED",
-            manual_override=True,
+            status="CANCEL_PENDING",
         )
 
 
@@ -128,6 +160,9 @@ def make_service(
             client_order_id_factory=(
                 lambda: "manual-order-1"
             ),
+            sleeper=lambda seconds: None,
+            cancel_poll_attempts=3,
+            cancel_poll_interval_seconds=1.1,
         )
     )
 
@@ -278,7 +313,8 @@ def test_cancel_does_not_require_new_order_arm():
         ),
     )
 
-    assert preflight.calls == 1
+    # Rescue cancellation bypasses entry preflight.
+    assert preflight.calls == 0
 
     assert manager.cancel_calls == [
         (
@@ -289,3 +325,152 @@ def test_cancel_does_not_require_new_order_arm():
 
     assert result.status == "CANCELLED"
     assert result.manual_override is True
+
+
+
+def test_cancel_polls_until_cancelled():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    manager.cancel_result = SimpleNamespace(
+        client_order_id="order-1",
+        symbol="SOUN",
+        status="CANCEL_PENDING",
+        broker_status="SUBMITTED",
+        manual_override=True,
+    )
+
+    manager.reconcile_results = [
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="CANCELLED",
+            broker_status="CANCELLED",
+            manual_override=True,
+        ),
+    ]
+
+    result = service.cancel(
+        client_order_id="order-1",
+        confirmation=(
+            CANCEL_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert result.status == "CANCELLED"
+
+    assert manager.reconcile_calls == [
+        "order-1",
+        "order-1",
+    ]
+
+
+def test_cancel_reports_fill_race():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    manager.cancel_result = SimpleNamespace(
+        client_order_id="order-1",
+        symbol="SOUN",
+        status="CANCEL_PENDING",
+        broker_status="SUBMITTED",
+        manual_override=True,
+    )
+
+    manager.reconcile_results = [
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="FILLED",
+            broker_status="FILLED",
+            manual_override=True,
+        ),
+    ]
+
+    with pytest.raises(
+        WebullSandboxManualOrderError,
+        match="SANDBOX_CANCEL_ORDER_FILLED",
+    ):
+        service.cancel(
+            client_order_id="order-1",
+            confirmation=(
+                CANCEL_CONFIRMATION_PHRASE
+            ),
+        )
+
+
+def test_cancel_timeout_stays_cancel_pending():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False
+    )
+
+    manager.cancel_result = SimpleNamespace(
+        client_order_id="order-1",
+        symbol="SOUN",
+        status="CANCEL_PENDING",
+        broker_status="SUBMITTED",
+        manual_override=True,
+    )
+
+    manager.reconcile_results = [
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+    ]
+
+    with pytest.raises(
+        WebullSandboxManualOrderError,
+        match="SANDBOX_CANCEL_PENDING",
+    ):
+        service.cancel(
+            client_order_id="order-1",
+            confirmation=(
+                CANCEL_CONFIRMATION_PHRASE
+            ),
+        )
+
+    assert manager.mark_pending_calls == [
+        "order-1"
+    ]

@@ -326,6 +326,34 @@ class WebullSandboxExecutionManager:
                 f"CANCELLATION_FAILED:{error}"
             ) from error
 
-        return self.reconcile(
+        result = self.reconcile(
             client_order_id=client_order_id
+        )
+
+        if result.status in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "REPLACE_PENDING",
+            "CANCEL_PENDING",
+        }:
+            return self.mark_cancel_pending(
+                client_order_id=client_order_id
+            )
+
+        return result
+
+    def mark_cancel_pending(
+        self,
+        *,
+        client_order_id: str,
+    ) -> WebullExecutionRecord:
+        """
+        Preserve the fact that cancellation has been requested
+        while Webull still reports the order as active.
+        """
+
+        return self.ledger.mark_operation_state(
+            client_order_id=client_order_id,
+            status="CANCEL_PENDING",
+            last_error=None,
         )

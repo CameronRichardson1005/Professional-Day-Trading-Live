@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import math
 import re
+import time
 from typing import Callable
 
 from .webull_execution import (
@@ -129,6 +130,9 @@ class WebullSandboxManualOrderService:
         client_order_id_factory: (
             Callable[[], str] | None
         ) = None,
+        sleeper: Callable[[float], None] | None = None,
+        cancel_poll_attempts: int = 4,
+        cancel_poll_interval_seconds: float = 1.1,
     ) -> None:
         self.preflight = preflight
         self.snapshot_client = (
@@ -152,6 +156,30 @@ class WebullSandboxManualOrderService:
             if client_order_id_factory
             is not None
             else generate_client_order_id
+        )
+
+        self.sleeper = (
+            sleeper
+            if sleeper is not None
+            else time.sleep
+        )
+
+        if cancel_poll_attempts <= 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_CANCEL_POLL_ATTEMPTS"
+            )
+
+        if cancel_poll_interval_seconds <= 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_CANCEL_POLL_INTERVAL"
+            )
+
+        self.cancel_poll_attempts = int(
+            cancel_poll_attempts
+        )
+
+        self.cancel_poll_interval_seconds = float(
+            cancel_poll_interval_seconds
         )
 
     def place(
@@ -240,10 +268,14 @@ class WebullSandboxManualOrderService:
         confirmation: str,
     ) -> WebullExecutionRecord:
         """
-        Manually cancel one locally tracked sandbox order.
+        Cancel one locally tracked sandbox order and wait for
+        Webull Order Detail to confirm the final result.
 
-        Cancellation remains available even when new order
-        placement has been disarmed.
+        This is deliberately a rescue operation:
+        - it does not require new-order arming;
+        - it does not run normal entry preflight;
+        - it never equates "cancel request sent" with
+          "order confirmed cancelled".
         """
 
         key = client_order_id.strip()
@@ -261,18 +293,88 @@ class WebullSandboxManualOrderService:
                 "SANDBOX_CANCEL_CONFIRMATION_REQUIRED"
             )
 
-        # Reconcile account, broker, and local ledger state
-        # immediately before attempting cancellation.
-        report = self.preflight.run()
+        try:
+            result = (
+                self.execution_manager
+                .cancel_manual(
+                    client_order_id=key,
+                    reason=(
+                        "MANUAL_SANDBOX_TEST_CANCEL"
+                    ),
+                )
+            )
 
-        if not report.allowed:
+        except Exception as error:
             raise WebullSandboxManualOrderError(
-                "SANDBOX_PREFLIGHT_NOT_ALLOWED"
+                "SANDBOX_CANCEL_REQUEST_FAILED:"
+                f"{error}"
+            ) from error
+
+        if result.status == "CANCELLED":
+            return result
+
+        if result.status == "FILLED":
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_ORDER_FILLED"
             )
 
-        return (
-            self.execution_manager.cancel_manual(
-                client_order_id=key,
-                reason="MANUAL_SANDBOX_TEST_CANCEL",
+        if result.status in {
+            "REJECTED",
+            "BROKER_STATE_UNKNOWN",
+            "ERROR",
+        }:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_CANCEL_UNRESOLVED:"
+                f"{result.status}"
             )
+
+        # Order Detail is deliberately polled at a bounded
+        # interval. Never busy-loop against the broker.
+        for _ in range(
+            self.cancel_poll_attempts
+        ):
+            self.sleeper(
+                self.cancel_poll_interval_seconds
+            )
+
+            try:
+                result = (
+                    self.execution_manager
+                    .reconcile(
+                        client_order_id=key
+                    )
+                )
+
+            except Exception as error:
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_CANCEL_RECONCILIATION_FAILED:"
+                    f"{error}"
+                ) from error
+
+            if result.status == "CANCELLED":
+                return result
+
+            if result.status == "FILLED":
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_CANCEL_ORDER_FILLED"
+                )
+
+            if result.status in {
+                "REJECTED",
+                "BROKER_STATE_UNKNOWN",
+                "ERROR",
+            }:
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_CANCEL_UNRESOLVED:"
+                    f"{result.status}"
+                )
+
+        # Webull still has not confirmed a terminal result.
+        # Persist CANCEL_PENDING and fail closed.
+        self.execution_manager.mark_cancel_pending(
+            client_order_id=key
+        )
+
+        raise WebullSandboxManualOrderError(
+            "SANDBOX_CANCEL_PENDING"
         )

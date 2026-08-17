@@ -560,3 +560,46 @@ def test_cancel_available_when_submission_disarmed():
             )
         ]
     )
+
+
+
+def test_cancel_request_remains_pending_until_broker_confirms(
+    tmp_path,
+):
+    (
+        manager,
+        broker,
+        ledger,
+        trade_client,
+    ) = make_manager(tmp_path)
+
+    manager.submit(
+        intent=make_intent(),
+        account=make_account(),
+    )
+
+    # Simulate Webull accepting the cancel request but Order
+    # Detail still reporting the order as live.
+    def cancel_without_immediate_status_change(
+        account_id,
+        client_order_id,
+    ):
+        trade_client.order_v3.cancel_calls.append(
+            (account_id, client_order_id)
+        )
+
+        return FakeResponse()
+
+    trade_client.order_v3.cancel_order = (
+        cancel_without_immediate_status_change
+    )
+
+    result = manager.cancel_manual(
+        client_order_id="order-1",
+        reason="USER_CANCELLED_ORDER",
+    )
+
+    assert result.status == "CANCEL_PENDING"
+    assert result.cancel_requested is True
+    assert result.manual_override is True
+    assert result.broker_status == "SUBMITTED"
