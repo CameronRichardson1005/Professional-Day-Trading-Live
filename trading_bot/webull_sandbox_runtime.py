@@ -6,6 +6,7 @@ from .config import (
     WEBULL_SANDBOX_ACCOUNT_ID,
     WEBULL_SANDBOX_APP_KEY,
     WEBULL_SANDBOX_APP_SECRET,
+    WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED,
     WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED,
 )
 from .webull_execution_ledger import (
@@ -216,5 +217,8 @@ def build_webull_sandbox_manual_order_service(
         execution_manager=manager,
         submission_armed=(
             WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+        ),
+        management_armed=(
+            WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
         ),
     )

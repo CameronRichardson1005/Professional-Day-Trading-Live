@@ -25,6 +25,7 @@ from .webull_sandbox_preflight import (
 
 CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_ORDER"
 CANCEL_CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_CANCEL"
+REPLACE_CONFIRMATION_PHRASE = "CONFIRM_SANDBOX_REPLACE"
 
 _SYMBOL_PATTERN = re.compile(
     r"^[A-Z][A-Z0-9.-]{0,14}$"
@@ -123,6 +124,7 @@ class WebullSandboxManualOrderService:
             WebullSandboxExecutionManager
         ),
         submission_armed: bool,
+        management_armed: bool = False,
         clock: Callable[
             [],
             datetime,
@@ -134,6 +136,9 @@ class WebullSandboxManualOrderService:
         cancel_poll_attempts: int = 4,
         cancel_poll_interval_seconds: float = 1.1,
         cancel_stabilization_seconds: float = 2.1,
+        replace_poll_attempts: int = 4,
+        replace_poll_interval_seconds: float = 1.1,
+        replace_stabilization_seconds: float = 2.1,
     ) -> None:
         self.preflight = preflight
         self.snapshot_client = (
@@ -144,6 +149,10 @@ class WebullSandboxManualOrderService:
         )
         self.submission_armed = bool(
             submission_armed
+        )
+
+        self.management_armed = bool(
+            management_armed
         )
 
         self.clock = (
@@ -190,6 +199,33 @@ class WebullSandboxManualOrderService:
 
         self.cancel_stabilization_seconds = float(
             cancel_stabilization_seconds
+        )
+
+        if replace_poll_attempts <= 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_REPLACE_POLL_ATTEMPTS"
+            )
+
+        if replace_poll_interval_seconds <= 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_REPLACE_POLL_INTERVAL"
+            )
+
+        if replace_stabilization_seconds < 0:
+            raise WebullSandboxManualOrderError(
+                "INVALID_REPLACE_STABILIZATION_INTERVAL"
+            )
+
+        self.replace_poll_attempts = int(
+            replace_poll_attempts
+        )
+
+        self.replace_poll_interval_seconds = float(
+            replace_poll_interval_seconds
+        )
+
+        self.replace_stabilization_seconds = float(
+            replace_stabilization_seconds
         )
 
     def place(
@@ -468,4 +504,187 @@ class WebullSandboxManualOrderService:
 
         raise WebullSandboxManualOrderError(
             "SANDBOX_CANCEL_PENDING"
+        )
+
+
+    def replace(
+        self,
+        *,
+        client_order_id: str,
+        quantity: int,
+        limit_price: float,
+        confirmation: str,
+    ) -> WebullExecutionRecord:
+        key = client_order_id.strip()
+
+        if not key:
+            raise WebullSandboxManualOrderError(
+                "CLIENT_ORDER_ID_REQUIRED"
+            )
+
+        if (
+            isinstance(quantity, bool)
+            or not isinstance(quantity, int)
+            or quantity <= 0
+        ):
+            raise WebullSandboxManualOrderError(
+                "INVALID_SANDBOX_REPLACE_QUANTITY"
+            )
+
+        try:
+            price = round(
+                float(limit_price),
+                4,
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+            raise WebullSandboxManualOrderError(
+                "INVALID_SANDBOX_REPLACE_PRICE"
+            ) from error
+
+        if (
+            not math.isfinite(price)
+            or price <= 0
+        ):
+            raise WebullSandboxManualOrderError(
+                "INVALID_SANDBOX_REPLACE_PRICE"
+            )
+
+        if (
+            confirmation.strip()
+            != REPLACE_CONFIRMATION_PHRASE
+        ):
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_REPLACE_CONFIRMATION_REQUIRED"
+            )
+
+        if not self.management_armed:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_ORDER_MANAGEMENT_NOT_ARMED"
+            )
+
+        report = self.preflight.run()
+
+        if not report.allowed:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_PREFLIGHT_NOT_ALLOWED"
+            )
+
+        if self.replace_stabilization_seconds:
+            self.sleeper(
+                self.replace_stabilization_seconds
+            )
+
+        snapshot = (
+            self.snapshot_client
+            .get_snapshot()
+        )
+
+        try:
+            result = (
+                self.execution_manager
+                .replace_manual(
+                    client_order_id=key,
+                    quantity=quantity,
+                    limit_price=price,
+                    reason=(
+                        "MANUAL_SANDBOX_TEST_REPLACE"
+                    ),
+                    account=(
+                        snapshot.account_state
+                    ),
+                    management_armed=True,
+                )
+            )
+
+        except Exception as error:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_REPLACE_REQUEST_FAILED:"
+                f"{error}"
+            ) from error
+
+        def confirmed(record) -> bool:
+            return (
+                record.status == "SUBMITTED"
+                and record.quantity == quantity
+                and abs(
+                    float(record.limit_price)
+                    - price
+                )
+                <= 0.000001
+            )
+
+        if confirmed(result):
+            return result
+
+        if result.status == "FILLED":
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_REPLACE_ORDER_FILLED"
+            )
+
+        if result.status == "CANCELLED":
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_REPLACE_ORDER_CANCELLED"
+            )
+
+        if result.status in {
+            "REJECTED",
+            "BROKER_STATE_UNKNOWN",
+            "ERROR",
+        }:
+            raise WebullSandboxManualOrderError(
+                "SANDBOX_REPLACE_UNRESOLVED:"
+                f"{result.status}"
+            )
+
+        for _ in range(
+            self.replace_poll_attempts
+        ):
+            self.sleeper(
+                self.replace_poll_interval_seconds
+            )
+
+            try:
+                result = (
+                    self.execution_manager
+                    .reconcile_replacement(
+                        client_order_id=key,
+                        quantity=quantity,
+                        limit_price=price,
+                    )
+                )
+
+            except Exception as error:
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_REPLACE_RECONCILIATION_FAILED:"
+                    f"{error}"
+                ) from error
+
+            if confirmed(result):
+                return result
+
+            if result.status == "FILLED":
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_REPLACE_ORDER_FILLED"
+                )
+
+            if result.status == "CANCELLED":
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_REPLACE_ORDER_CANCELLED"
+                )
+
+            if result.status in {
+                "REJECTED",
+                "BROKER_STATE_UNKNOWN",
+                "ERROR",
+            }:
+                raise WebullSandboxManualOrderError(
+                    "SANDBOX_REPLACE_UNRESOLVED:"
+                    f"{result.status}"
+                )
+
+        raise WebullSandboxManualOrderError(
+            "SANDBOX_REPLACE_PENDING"
         )

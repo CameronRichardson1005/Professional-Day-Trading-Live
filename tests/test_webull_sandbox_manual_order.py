@@ -6,6 +6,7 @@ import pytest
 from trading_bot.webull_sandbox_manual_order import (
     CANCEL_CONFIRMATION_PHRASE,
     CONFIRMATION_PHRASE,
+    REPLACE_CONFIRMATION_PHRASE,
     WebullSandboxManualOrderError,
     WebullSandboxManualOrderRequest,
     WebullSandboxManualOrderService,
@@ -75,6 +76,20 @@ class FakeManager:
             manual_override=True,
         )
         self.mark_pending_calls = []
+        self.replace_calls = []
+        self.replace_reconcile_calls = []
+        self.replace_reconcile_results = []
+
+        self.replace_result = SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            quantity=2,
+            limit_price=5.10,
+            status="SUBMITTED",
+            broker_order_id="broker-1",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        )
 
     def submit(
         self,
@@ -97,6 +112,49 @@ class FakeManager:
             broker_order_id="broker-1",
             broker_status="SUBMITTED",
         )
+
+    def replace_manual(
+        self,
+        *,
+        client_order_id,
+        quantity,
+        limit_price,
+        reason,
+        account,
+        management_armed,
+    ):
+        self.replace_calls.append(
+            (
+                client_order_id,
+                quantity,
+                limit_price,
+                reason,
+                account,
+                management_armed,
+            )
+        )
+
+        return self.replace_result
+
+    def reconcile_replacement(
+        self,
+        *,
+        client_order_id,
+        quantity,
+        limit_price,
+    ):
+        self.replace_reconcile_calls.append(
+            (
+                client_order_id,
+                quantity,
+                limit_price,
+            )
+        )
+
+        if self.replace_reconcile_results:
+            return self.replace_reconcile_results.pop(0)
+
+        return self.replace_result
 
     def cancel_manual(
         self,
@@ -151,6 +209,7 @@ class FakeManager:
 def make_service(
     *,
     armed=True,
+    management_armed=False,
 ):
     preflight = FakePreflight()
     snapshot = FakeSnapshotClient()
@@ -162,6 +221,7 @@ def make_service(
             snapshot_client=snapshot,
             execution_manager=manager,
             submission_armed=armed,
+            management_armed=management_armed,
             clock=lambda: NOW,
             client_order_id_factory=(
                 lambda: "manual-order-1"
@@ -555,3 +615,139 @@ def test_terminal_order_is_not_cancelled_again():
 
     assert result.status == "CANCELLED"
     assert manager.cancel_calls == []
+
+
+
+def test_replace_requires_management_arm():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False,
+        management_armed=False,
+    )
+
+    with pytest.raises(
+        WebullSandboxManualOrderError,
+        match="SANDBOX_ORDER_MANAGEMENT_NOT_ARMED",
+    ):
+        service.replace(
+            client_order_id="order-1",
+            quantity=2,
+            limit_price=5.10,
+            confirmation=(
+                REPLACE_CONFIRMATION_PHRASE
+            ),
+        )
+
+    assert preflight.calls == 0
+    assert snapshot.calls == 0
+    assert manager.replace_calls == []
+
+
+def test_replace_uses_preflight_snapshot_and_manager():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False,
+        management_armed=True,
+    )
+
+    result = service.replace(
+        client_order_id="order-1",
+        quantity=2,
+        limit_price=5.10,
+        confirmation=(
+            REPLACE_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert preflight.calls == 1
+    assert snapshot.calls == 1
+    assert len(manager.replace_calls) == 1
+
+    call = manager.replace_calls[0]
+
+    assert call[0] == "order-1"
+    assert call[1] == 2
+    assert call[2] == 5.10
+
+    assert (
+        call[3]
+        == "MANUAL_SANDBOX_TEST_REPLACE"
+    )
+
+    assert (
+        call[4]
+        is snapshot.account_state
+    )
+
+    assert call[5] is True
+    assert result.status == "SUBMITTED"
+
+
+def test_replace_polls_until_requested_state_visible():
+    (
+        service,
+        preflight,
+        snapshot,
+        manager,
+    ) = make_service(
+        armed=False,
+        management_armed=True,
+    )
+
+    manager.replace_result = SimpleNamespace(
+        client_order_id="order-1",
+        symbol="SOUN",
+        quantity=1,
+        limit_price=5.00,
+        status="REPLACE_PENDING",
+        broker_order_id="broker-1",
+        broker_status="SUBMITTED",
+        manual_override=True,
+    )
+
+    manager.replace_reconcile_results = [
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            quantity=1,
+            limit_price=5.00,
+            status="REPLACE_PENDING",
+            broker_order_id="broker-1",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+        SimpleNamespace(
+            client_order_id="order-1",
+            symbol="SOUN",
+            quantity=2,
+            limit_price=5.10,
+            status="SUBMITTED",
+            broker_order_id="broker-1",
+            broker_status="SUBMITTED",
+            manual_override=True,
+        ),
+    ]
+
+    result = service.replace(
+        client_order_id="order-1",
+        quantity=2,
+        limit_price=5.10,
+        confirmation=(
+            REPLACE_CONFIRMATION_PHRASE
+        ),
+    )
+
+    assert result.quantity == 2
+    assert result.limit_price == 5.10
+
+    assert len(
+        manager.replace_reconcile_calls
+    ) == 2

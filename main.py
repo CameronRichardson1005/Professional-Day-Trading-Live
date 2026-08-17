@@ -8,6 +8,7 @@ from trading_bot.market_calendar import nyse_trading_dates
 from trading_bot.webull_sandbox_manual_order import (
     CANCEL_CONFIRMATION_PHRASE,
     CONFIRMATION_PHRASE,
+    REPLACE_CONFIRMATION_PHRASE,
     WebullSandboxManualOrderRequest,
 )
 from trading_bot.webull_sandbox_runtime import (
@@ -37,6 +38,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-preflight",
     "webull-sandbox-test-cancel",
     "webull-sandbox-test-order",
+    "webull-sandbox-test-replace",
     "webull-pnl",
     "production",
 )
@@ -322,6 +324,124 @@ def main() -> int:
             )
             print(
                 f"Symbol: {result.symbol}"
+            )
+            print(
+                f"Status: {result.status}"
+            )
+
+            if result.broker_status:
+                print(
+                    "Broker status: "
+                    f"{result.broker_status}"
+                )
+
+            print(
+                "Manual override: "
+                f"{result.manual_override}"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "SANDBOX ONLY — NO LIVE "
+                "WEBULL ORDER WAS MODIFIED"
+            )
+
+            return 0
+
+        if mode == "webull-sandbox-test-replace":
+            if len(sys.argv) != 6:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-test-replace "
+                    "CLIENT_ORDER_ID QUANTITY LIMIT_PRICE "
+                    "CONFIRM_SANDBOX_REPLACE"
+                )
+                return 2
+
+            client_order_id = (
+                sys.argv[2].strip()
+            )
+
+            try:
+                quantity = int(
+                    sys.argv[3]
+                )
+
+                limit_price = float(
+                    sys.argv[4]
+                )
+
+            except ValueError:
+                print(
+                    "Quantity must be an integer "
+                    "and limit price must be numeric."
+                )
+                return 2
+
+            confirmation = (
+                sys.argv[5].strip()
+            )
+
+            if (
+                confirmation
+                != REPLACE_CONFIRMATION_PHRASE
+            ):
+                print(
+                    "Sandbox replace confirmation "
+                    "phrase was incorrect."
+                )
+                return 2
+
+            try:
+                service = (
+                    build_webull_sandbox_manual_order_service()
+                )
+
+                result = service.replace(
+                    client_order_id=(
+                        client_order_id
+                    ),
+                    quantity=quantity,
+                    limit_price=limit_price,
+                    confirmation=confirmation,
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX TEST REPLACE FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "SANDBOX ONLY — LIVE TRADING "
+                    "WAS NOT USED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX TEST REPLACE"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "Client order ID: "
+                f"{result.client_order_id}"
+            )
+            print(
+                f"Symbol: {result.symbol}"
+            )
+            print(
+                f"Quantity: {result.quantity}"
+            )
+            print(
+                "Limit price: "
+                f"${result.limit_price:.4f}"
             )
             print(
                 f"Status: {result.status}"

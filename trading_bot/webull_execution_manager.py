@@ -362,6 +362,19 @@ class WebullSandboxExecutionManager:
                 f"REPLACEMENT_FAILED:{error}"
             ) from error
 
+        return self.reconcile_replacement(
+            client_order_id=client_order_id,
+            quantity=quantity,
+            limit_price=limit_price,
+        )
+
+    def reconcile_replacement(
+        self,
+        *,
+        client_order_id: str,
+        quantity: int,
+        limit_price: float,
+    ) -> WebullExecutionRecord:
         result = self.reconcile(
             client_order_id=client_order_id
         )
@@ -395,8 +408,6 @@ class WebullSandboxExecutionManager:
                 client_order_id=client_order_id
             )
 
-        # Broker accepted the request, but Order Detail has not
-        # reflected it yet. Keep desired state durable.
         return self.ledger.mark_operation_state(
             client_order_id=client_order_id,
             status="REPLACE_PENDING",

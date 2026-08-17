@@ -7,6 +7,7 @@ class FakeService:
     def __init__(self):
         self.requests = []
         self.cancel_requests = []
+        self.replace_requests = []
 
     def place(self, request):
         self.requests.append(request)
@@ -19,6 +20,33 @@ class FakeService:
             status="SUBMITTED",
             broker_order_id="broker-1",
             broker_status="SUBMITTED",
+        )
+
+    def replace(
+        self,
+        *,
+        client_order_id,
+        quantity,
+        limit_price,
+        confirmation,
+    ):
+        self.replace_requests.append(
+            (
+                client_order_id,
+                quantity,
+                limit_price,
+                confirmation,
+            )
+        )
+
+        return SimpleNamespace(
+            client_order_id=client_order_id,
+            symbol="SOUN",
+            quantity=quantity,
+            limit_price=limit_price,
+            status="SUBMITTED",
+            broker_status="SUBMITTED",
+            manual_override=True,
         )
 
     def cancel(
@@ -203,6 +231,79 @@ def test_manual_sandbox_cancel_cli(
         "Status: CANCELLED"
         in output
     )
+
+    assert (
+        "NO LIVE WEBULL ORDER WAS MODIFIED"
+        in output
+    )
+
+
+
+def test_manual_sandbox_replace_cli(
+    monkeypatch,
+    capsys,
+):
+    service = FakeService()
+
+    monkeypatch.setattr(
+        main_module,
+        "setup_logging",
+        lambda: "test.log",
+    )
+
+    monkeypatch.setattr(
+        main_module,
+        "build_webull_sandbox_manual_order_service",
+        lambda: service,
+    )
+
+    class ForbiddenTradingBot:
+        def __init__(self):
+            raise AssertionError(
+                "TradingBot must not be constructed."
+            )
+
+    monkeypatch.setattr(
+        main_module,
+        "TradingBot",
+        ForbiddenTradingBot,
+    )
+
+    monkeypatch.setattr(
+        main_module.sys,
+        "argv",
+        [
+            "main.py",
+            "webull-sandbox-test-replace",
+            "manual-1",
+            "2",
+            "5.10",
+            "CONFIRM_SANDBOX_REPLACE",
+        ],
+    )
+
+    result = main_module.main()
+
+    assert result == 0
+
+    assert service.replace_requests == [
+        (
+            "manual-1",
+            2,
+            5.10,
+            "CONFIRM_SANDBOX_REPLACE",
+        )
+    ]
+
+    output = capsys.readouterr().out
+
+    assert (
+        "WEBULL SANDBOX TEST REPLACE"
+        in output
+    )
+
+    assert "Quantity: 2" in output
+    assert "Limit price: $5.1000" in output
 
     assert (
         "NO LIVE WEBULL ORDER WAS MODIFIED"
