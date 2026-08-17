@@ -18,6 +18,9 @@ from .webull_execution import (
     WebullTradeIntent,
     require_safe_execution_mode,
 )
+from .webull_reduce_only_close import (
+    WebullReduceOnlyCloseIntent,
+)
 
 
 SANDBOX_ENDPOINT = "api.sandbox.webull.com"
@@ -329,6 +332,56 @@ class WebullSandboxBroker:
         self._check_response(
             response,
             operation="PLACE_ORDER",
+        )
+
+    def place_reduce_only_close(
+        self,
+        intent: WebullReduceOnlyCloseIntent,
+        *,
+        management_enabled: bool = False,
+    ) -> None:
+        """
+        Submit one sandbox SELL that has already been validated
+        as reduce-only against a confirmed long position.
+
+        This deliberately does not use the new-entry submission
+        arm. Existing-position management has its own arm.
+        """
+
+        if not management_enabled:
+            raise WebullSandboxBrokerError(
+                "SANDBOX_ORDER_MANAGEMENT_NOT_ENABLED"
+            )
+
+        if intent.side != "SELL":
+            raise WebullSandboxBrokerError(
+                "REDUCE_ONLY_CLOSE_MUST_BE_SELL"
+            )
+
+        payload = intent.broker_payload()
+
+        if payload.get("side") != "SELL":
+            raise WebullSandboxBrokerError(
+                "REDUCE_ONLY_CLOSE_PAYLOAD_NOT_SELL"
+            )
+
+        try:
+            response = (
+                self._trade_client.order_v3
+                .place_order(
+                    self.account_id,
+                    [payload],
+                )
+            )
+        except Exception as error:
+            raise WebullSandboxBrokerError(
+                "CLOSE_ORDER_TRANSPORT_ERROR",
+                ambiguous=True,
+            ) from error
+
+        self._check_response(
+            response,
+            operation="CLOSE_ORDER",
         )
 
     def replace_order(
