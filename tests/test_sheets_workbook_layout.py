@@ -63,7 +63,7 @@ def test_daily_sheet_layout_policy():
     )
 
     assert quick_flip is not None
-    assert quick_flip["widths"][14] == 135
+    assert quick_flip["widths"][14] == 120
     assert quick_flip["hidden_columns"] == [
         (8, 14),
         (15, 18),
@@ -414,3 +414,263 @@ def test_trade_previews_approved_widths():
         9: 180,
         10: 225,
     }
+
+
+def test_new_york_clock_time_formatter():
+    from datetime import datetime, timezone
+
+    value = datetime(
+        2026,
+        8,
+        17,
+        14,
+        25,
+        tzinfo=timezone.utc,
+    )
+
+    assert (
+        SheetsClient
+        ._format_new_york_clock_time(
+            value
+        )
+        == "10:25 AM"
+    )
+
+
+def test_final_scanner_and_quick_flip_widths():
+    scanner = (
+        SheetsClient
+        ._trading_sheet_layout_policy(
+            "Scanner Dashboard"
+        )
+    )
+
+    assert scanner is not None
+    assert scanner["widths"][10] == 260
+
+    quick_flip = (
+        SheetsClient
+        ._trading_sheet_layout_policy(
+            "Quick Flip Signals"
+        )
+    )
+
+    assert quick_flip is not None
+    assert quick_flip["widths"][4] == 150
+    assert quick_flip["widths"][14] == 120
+
+
+def test_quick_flip_visible_price_formats():
+    columns = [
+        "Date",
+        "Symbol",
+        "Status",
+        "Signal",
+        "Pattern",
+        "Entry",
+        "TP1",
+        "TP2",
+        "Confirmation Time",
+    ]
+
+    values = [
+        columns,
+        [
+            "2026-08-17",
+            "RIVN",
+            "INVEST",
+            "INVEST",
+            "HAMMER",
+            "14.85",
+            "15.05",
+            "15.36",
+            "10:25 AM",
+        ],
+    ]
+
+    worksheet = FakeWorksheet(
+        "Quick Flip Signals",
+        301,
+    )
+
+    spreadsheet = FakeSpreadsheet(
+        [worksheet]
+    )
+
+    client = object.__new__(
+        SheetsClient
+    )
+
+    client.spreadsheet = spreadsheet
+    client._worksheet_values_cache = {
+        "Quick Flip Signals": values,
+    }
+
+    client.format_worksheet(
+        worksheet
+    )
+
+    requests = (
+        spreadsheet
+        .batch_calls[-1]["requests"]
+    )
+
+    formats = {}
+
+    for request in requests:
+        repeat = request.get(
+            "repeatCell",
+            {}
+        )
+
+        number_format = (
+            repeat.get(
+                "cell",
+                {}
+            )
+            .get(
+                "userEnteredFormat",
+                {}
+            )
+            .get(
+                "numberFormat"
+            )
+        )
+
+        if number_format is None:
+            continue
+
+        column_index = (
+            repeat["range"][
+                "startColumnIndex"
+            ]
+        )
+
+        formats[
+            column_index
+        ] = number_format
+
+    assert formats[5] == {
+        "type": "CURRENCY",
+        "pattern": "$#,##0.0000",
+    }
+
+    assert formats[6] == {
+        "type": "CURRENCY",
+        "pattern": "$#,##0.0000",
+    }
+
+    assert formats[7] == {
+        "type": "CURRENCY",
+        "pattern": "$#,##0.0000",
+    }
+
+
+def test_daily_pnl_summary_formats():
+    columns = [
+        "Date",
+        "Closed Trades",
+        "Winning Trades",
+        "Losing Trades",
+        "Breakeven Trades",
+        "Win Rate %",
+        "Gross Profit",
+        "Gross Loss",
+        "Realized P&L",
+        "Source",
+    ]
+
+    values = [
+        columns,
+        [
+            "2026-08-17",
+            "2",
+            "2",
+            "0",
+            "0",
+            "100",
+            "12",
+            "0",
+            "12",
+            "WEBULL ORDER HISTORY",
+        ],
+    ]
+
+    worksheet = FakeWorksheet(
+        "Daily P&L Summary",
+        302,
+    )
+
+    spreadsheet = FakeSpreadsheet(
+        [worksheet]
+    )
+
+    client = object.__new__(
+        SheetsClient
+    )
+
+    client.spreadsheet = spreadsheet
+    client._worksheet_values_cache = {
+        "Daily P&L Summary": values,
+    }
+
+    client.format_worksheet(
+        worksheet
+    )
+
+    requests = (
+        spreadsheet
+        .batch_calls[-1]["requests"]
+    )
+
+    formats = {}
+
+    for request in requests:
+        repeat = request.get(
+            "repeatCell",
+            {}
+        )
+
+        number_format = (
+            repeat.get(
+                "cell",
+                {}
+            )
+            .get(
+                "userEnteredFormat",
+                {}
+            )
+            .get(
+                "numberFormat"
+            )
+        )
+
+        if number_format is None:
+            continue
+
+        column_index = (
+            repeat["range"][
+                "startColumnIndex"
+            ]
+        )
+
+        formats[
+            column_index
+        ] = number_format
+
+    assert formats[5] == {
+        "type": "NUMBER",
+        "pattern": '0.00"%"',
+    }
+
+    for column_index in (
+        6,
+        7,
+        8,
+    ):
+        assert formats[
+            column_index
+        ] == {
+            "type": "CURRENCY",
+            "pattern": "$#,##0.00",
+        }

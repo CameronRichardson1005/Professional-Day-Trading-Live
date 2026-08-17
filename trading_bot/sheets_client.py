@@ -803,6 +803,54 @@ class SheetsClient:
             )
 
     @staticmethod
+    def _format_new_york_clock_time(
+            value,
+    ) -> str:
+        """
+        Format an aware strategy timestamp as a concise
+        America/New_York clock time for Google Sheets display.
+
+        Strategy calculations retain their original datetime
+        objects; this changes presentation only.
+        """
+        if value in {
+            None,
+            "",
+        }:
+            return ""
+
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        if isinstance(
+            value,
+            datetime,
+        ):
+            timestamp = value
+        else:
+            try:
+                timestamp = datetime.fromisoformat(
+                    str(value)
+                )
+            except ValueError:
+                return str(value)
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(
+                tzinfo=ZoneInfo("UTC")
+            )
+
+        eastern = timestamp.astimezone(
+            ZoneInfo(
+                "America/New_York"
+            )
+        )
+
+        return eastern.strftime(
+            "%I:%M %p"
+        ).lstrip("0")
+
+    @staticmethod
     def _append_trade_previews_display_requests(
             *,
             requests: list[dict],
@@ -1026,7 +1074,7 @@ class SheetsClient:
                     4: 110,
                     7: 115,
                     9: 90,
-                    10: 175,
+                    10: 260,
                 },
                 "hidden_columns": [
                     (2, 3),
@@ -1058,11 +1106,11 @@ class SheetsClient:
                     1: 85,
                     2: 120,
                     3: 90,
-                    4: 105,
+                    4: 150,
                     5: 95,
                     6: 95,
                     7: 95,
-                    14: 135,
+                    14: 120,
                 },
                 "hidden_columns": [
                     (8, 14),
@@ -1358,6 +1406,8 @@ class SheetsClient:
             "Candle Range",
             "Entry",
             "Target",
+            "TP1",
+            "TP2",
             "Retracement Price",
             "Opening Open",
             "Opening High",
@@ -1381,6 +1431,9 @@ class SheetsClient:
             "Sell Price",
             "Profit/Loss",
             "Total P&L",
+            "Gross Profit",
+            "Gross Loss",
+            "Realized P&L",
         }
 
         number_two_decimals = {
@@ -1411,6 +1464,7 @@ class SheetsClient:
             "Reliability",
             "Completeness",
             "Return %",
+            "Win Rate %",
         }
 
         date_columns = {
@@ -3102,9 +3156,8 @@ class SheetsClient:
                 (
                     ""
                     if signal is None
-                    else str(
+                    else self._format_new_york_clock_time(
                         signal.confirmation_time
-                        or ""
                     )
                 ),
                 (
