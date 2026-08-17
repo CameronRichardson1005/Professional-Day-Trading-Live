@@ -15,6 +15,15 @@ from .webull_execution_ledger import (
 from .webull_execution_manager import (
     WebullSandboxExecutionManager,
 )
+from .webull_reduce_only_close import (
+    WebullReduceOnlyCloseLedger,
+)
+from .webull_reduce_only_close_manager import (
+    WebullSandboxReduceOnlyCloseManager,
+)
+from .webull_sandbox_manual_close import (
+    WebullSandboxManualCloseService,
+)
 from .webull_sdk_safety import (
     build_quiet_trade_client,
 )
@@ -218,6 +227,58 @@ def build_webull_sandbox_manual_order_service(
         submission_armed=(
             WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
         ),
+        management_armed=(
+            WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
+        ),
+    )
+
+
+
+def build_webull_sandbox_manual_close_service(
+) -> WebullSandboxManualCloseService:
+    """
+    Build the explicitly manual sandbox reduce-only close
+    service.
+
+    Normal BUY-order submission is forced off. A new reduce-only
+    SELL may only proceed through the independent sandbox order
+    management arm enforced by the close service.
+    """
+
+    snapshot_client = (
+        WebullSandboxAccountSnapshotClient(
+            account_id=(
+                WEBULL_SANDBOX_ACCOUNT_ID
+            ),
+            execution_mode=(
+                WEBULL_EXECUTION_MODE
+            ),
+        )
+    )
+
+    broker = WebullSandboxBroker(
+        account_id=WEBULL_SANDBOX_ACCOUNT_ID,
+        execution_mode=WEBULL_EXECUTION_MODE,
+        submission_enabled=False,
+    )
+
+    close_ledger = (
+        WebullReduceOnlyCloseLedger()
+    )
+
+    close_manager = (
+        WebullSandboxReduceOnlyCloseManager(
+            broker=broker,
+            ledger=close_ledger,
+            execution_mode=(
+                WEBULL_EXECUTION_MODE
+            ),
+        )
+    )
+
+    return WebullSandboxManualCloseService(
+        snapshot_client=snapshot_client,
+        close_manager=close_manager,
         management_armed=(
             WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
         ),
