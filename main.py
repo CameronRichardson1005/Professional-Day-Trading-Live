@@ -5,7 +5,10 @@ from datetime import date
 
 from trading_bot.bot import TradingBot
 from trading_bot.market_calendar import nyse_trading_dates
-from trading_bot.webull_sandbox_runtime import build_webull_sandbox_preflight
+from trading_bot.webull_sandbox_runtime import (
+    build_webull_sandbox_preflight,
+    discover_webull_sandbox_accounts,
+)
 from trading_bot.utils import setup_logging
 
 
@@ -22,6 +25,7 @@ AVAILABLE_MODES = (
     "webull-approval-request",
     "webull-approval-confirm",
     "webull-paper-submit",
+    "webull-sandbox-accounts",
     "webull-sandbox-preflight",
     "webull-pnl",
     "production",
@@ -93,6 +97,59 @@ def main() -> int:
         #
         # This command cannot place, modify, or cancel orders.
         # -----------------------------------------
+        if mode == "webull-sandbox-accounts":
+            if len(sys.argv) != 2:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-accounts"
+                )
+                return 2
+
+            try:
+                accounts = (
+                    discover_webull_sandbox_accounts()
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX ACCOUNT "
+                    "DISCOVERY FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "READ-ONLY — NO WEBULL ORDER "
+                    "WAS PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX ACCOUNTS"
+            )
+            print(
+                "--------------------------------"
+            )
+
+            for account in accounts:
+                print(
+                    f"{account.account_id} "
+                    f"({account.account_type})"
+                )
+
+            print(
+                "--------------------------------"
+            )
+            print(
+                "READ-ONLY — NO WEBULL ORDER "
+                "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
         if mode == "webull-sandbox-preflight":
             if len(sys.argv) != 2:
                 print(

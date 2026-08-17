@@ -1,19 +1,27 @@
 from __future__ import annotations
 
+from webull.core.client import ApiClient
+from webull.trade.trade_client import TradeClient
+
 from .config import (
     WEBULL_EXECUTION_LEDGER_FILE,
     WEBULL_EXECUTION_MODE,
     WEBULL_SANDBOX_ACCOUNT_ID,
+    WEBULL_SANDBOX_APP_KEY,
+    WEBULL_SANDBOX_APP_SECRET,
 )
 from .webull_execution_ledger import (
     WebullExecutionLedger,
 )
 from .webull_sandbox_broker import (
+    SANDBOX_ENDPOINT,
     WebullSandboxBroker,
 )
 from .webull_sandbox_preflight import (
     WebullSandboxAccountSnapshotClient,
     WebullSandboxPreflight,
+    WebullSandboxPreflightError,
+    list_sandbox_accounts,
 )
 
 
@@ -54,4 +62,76 @@ def build_webull_sandbox_preflight(
         snapshot_client=snapshot_client,
         broker=broker,
         ledger=ledger,
+    )
+
+
+
+def discover_webull_sandbox_accounts(
+):
+    """
+    Read the Webull sandbox account list.
+
+    No account ID is required and no trading/order operation
+    is exposed by this function.
+    """
+
+    if WEBULL_EXECUTION_MODE != "SANDBOX":
+        raise WebullSandboxPreflightError(
+            "SANDBOX_MODE_REQUIRED"
+        )
+
+    if not WEBULL_SANDBOX_APP_KEY:
+        raise WebullSandboxPreflightError(
+            "SANDBOX_APP_KEY_REQUIRED"
+        )
+
+    if not WEBULL_SANDBOX_APP_SECRET:
+        raise WebullSandboxPreflightError(
+            "SANDBOX_APP_SECRET_REQUIRED"
+        )
+
+    api_client = ApiClient(
+        WEBULL_SANDBOX_APP_KEY,
+        WEBULL_SANDBOX_APP_SECRET,
+        "us",
+    )
+
+    api_client.add_endpoint(
+        "us",
+        SANDBOX_ENDPOINT,
+    )
+
+    trade_client = TradeClient(
+        api_client
+    )
+
+    try:
+        response = (
+            trade_client.account_v2
+            .get_account_list()
+        )
+    except Exception as error:
+        raise WebullSandboxPreflightError(
+            "SANDBOX_ACCOUNT_LIST_TRANSPORT_ERROR"
+        ) from error
+
+    if getattr(
+        response,
+        "status_code",
+        None,
+    ) != 200:
+        raise WebullSandboxPreflightError(
+            "SANDBOX_ACCOUNT_LIST_HTTP_"
+            f"{getattr(response, 'status_code', None)!r}"
+        )
+
+    try:
+        payload = response.json()
+    except Exception as error:
+        raise WebullSandboxPreflightError(
+            "SANDBOX_ACCOUNT_LIST_INVALID_JSON"
+        ) from error
+
+    return list_sandbox_accounts(
+        payload
     )

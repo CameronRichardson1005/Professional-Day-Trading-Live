@@ -104,6 +104,77 @@ def _account_records(
     return records
 
 
+
+def list_sandbox_accounts(
+    payload: Any,
+) -> tuple[ParsedWebullAccount, ...]:
+    """
+    Strictly parse every account returned by the sandbox
+    account-list endpoint without choosing one automatically.
+    """
+
+    parsed = []
+    seen_ids = set()
+
+    for item in _account_records(payload):
+        raw_id = item.get(
+            "account_id",
+            item.get("accountId"),
+        )
+
+        if raw_id in {None, ""}:
+            raise WebullSandboxPreflightError(
+                "SANDBOX_ACCOUNT_ID_MISSING"
+            )
+
+        account_id = str(
+            raw_id
+        ).strip()
+
+        if not account_id:
+            raise WebullSandboxPreflightError(
+                "SANDBOX_ACCOUNT_ID_MISSING"
+            )
+
+        if account_id in seen_ids:
+            raise WebullSandboxPreflightError(
+                "DUPLICATE_SANDBOX_ACCOUNT_ID"
+            )
+
+        account_type = str(
+            item.get(
+                "account_type",
+                item.get(
+                    "accountType",
+                    item.get("type", ""),
+                ),
+            )
+        ).strip().upper()
+
+        if account_type not in {
+            "CASH",
+            "MARGIN",
+        }:
+            raise WebullSandboxPreflightError(
+                "SANDBOX_ACCOUNT_TYPE_INVALID"
+            )
+
+        seen_ids.add(account_id)
+
+        parsed.append(
+            ParsedWebullAccount(
+                account_id=account_id,
+                account_type=account_type,
+            )
+        )
+
+    if not parsed:
+        raise WebullSandboxPreflightError(
+            "NO_SANDBOX_ACCOUNTS_FOUND"
+        )
+
+    return tuple(parsed)
+
 def select_account_by_id(
     payload: Any,
     *,
