@@ -70,11 +70,13 @@ def install_fakes(
             *,
             broker,
             ledger,
+            snapshot_client,
             execution_mode,
         ):
             calls["manager"] = {
                 "broker": broker,
                 "ledger": ledger,
+                "snapshot_client": snapshot_client,
                 "execution_mode": execution_mode,
             }
 
@@ -198,4 +200,21 @@ def test_entry_submission_flag_cannot_arm_close_broker(
     assert (
         calls["service"]["management_armed"]
         is False
+    )
+
+
+
+def test_close_manager_receives_fresh_snapshot_client(
+    monkeypatch,
+):
+    calls = install_fakes(
+        monkeypatch,
+        management_armed=False,
+    )
+
+    runtime.build_webull_sandbox_manual_close_service()
+
+    assert (
+        calls["manager"]["snapshot_client"]
+        is calls["service"]["snapshot_client"]
     )

@@ -1,8 +1,10 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
 from trading_bot.webull_account_parser import (
+    ParsedWebullOpenOrder,
     ParsedWebullPosition,
 )
 from trading_bot.webull_execution import (
@@ -141,6 +143,25 @@ def close_intent():
     )
 
 
+class FakeSnapshotClient:
+    def __init__(self):
+        self.calls = 0
+        self.value = SimpleNamespace(
+            account_state=SimpleNamespace(
+                account_type="CASH",
+                data_is_current=True,
+            ),
+            positions=(
+                position(),
+            ),
+            open_orders=(),
+        )
+
+    def get_snapshot(self):
+        self.calls += 1
+        return self.value
+
+
 def make_manager(tmp_path):
     trade_client = FakeTradeClient()
 
@@ -156,10 +177,13 @@ def make_manager(tmp_path):
         clock=lambda: NOW,
     )
 
+    snapshot_client = FakeSnapshotClient()
+
     manager = (
         WebullSandboxReduceOnlyCloseManager(
             broker=broker,
             ledger=ledger,
+            snapshot_client=snapshot_client,
             execution_mode="SANDBOX",
         )
     )
@@ -476,6 +500,17 @@ def test_partial_position_reconciliation(
         make_manager(tmp_path)
     )
 
+    manager.snapshot_client.value = SimpleNamespace(
+        account_state=SimpleNamespace(
+            account_type="CASH",
+            data_is_current=True,
+        ),
+        positions=(
+            position(quantity=3),
+        ),
+        open_orders=(),
+    )
+
     intent = build_reduce_only_close_intent(
         client_order_id="close-1",
         positions=(position(quantity=3),),
@@ -675,3 +710,189 @@ def test_ambiguous_close_cancel_not_retried(
         stored.status
         == "BROKER_STATE_UNKNOWN"
     )
+
+
+
+def test_pre_submit_position_change_fails_closed(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.snapshot_client.value = (
+        SimpleNamespace(
+            account_state=SimpleNamespace(
+                account_type="CASH",
+                data_is_current=True,
+            ),
+            positions=(
+                position(
+                    quantity=0.5
+                ),
+            ),
+            open_orders=(),
+        )
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match=(
+            "CLOSE_POSITION_CHANGED_BEFORE_SUBMIT"
+        ),
+    ):
+        manager.submit(
+            intent=close_intent(),
+            management_armed=True,
+        )
+
+    assert (
+        trade_client.order_v3.place_calls
+        == []
+    )
+
+    assert (
+        ledger.load()["close-1"].status
+        == "REJECTED"
+    )
+
+
+def test_pre_submit_open_sell_fails_closed(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    existing_sell = ParsedWebullOpenOrder(
+        symbol="SOUN",
+        side="SELL",
+        remaining_quantity=1.0,
+        limit_price=7.00,
+        reserved_exposure=0.0,
+    )
+
+    manager.snapshot_client.value = (
+        SimpleNamespace(
+            account_state=SimpleNamespace(
+                account_type="CASH",
+                data_is_current=True,
+            ),
+            positions=(
+                position(),
+            ),
+            open_orders=(
+                existing_sell,
+            ),
+        )
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match=(
+            "OPEN_SELL_ORDER_ALREADY_EXISTS"
+        ),
+    ):
+        manager.submit(
+            intent=close_intent(),
+            management_armed=True,
+        )
+
+    assert (
+        trade_client.order_v3.place_calls
+        == []
+    )
+
+
+def test_pre_submit_stale_account_fails_closed(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.snapshot_client.value = (
+        SimpleNamespace(
+            account_state=SimpleNamespace(
+                account_type="CASH",
+                data_is_current=False,
+            ),
+            positions=(
+                position(),
+            ),
+            open_orders=(),
+        )
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match="CLOSE_ACCOUNT_DATA_STALE",
+    ):
+        manager.submit(
+            intent=close_intent(),
+            management_armed=True,
+        )
+
+    assert (
+        trade_client.order_v3.place_calls
+        == []
+    )
+
+
+def test_pre_submit_margin_account_fails_closed(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    manager.snapshot_client.value = (
+        SimpleNamespace(
+            account_state=SimpleNamespace(
+                account_type="MARGIN",
+                data_is_current=True,
+            ),
+            positions=(
+                position(),
+            ),
+            open_orders=(),
+        )
+    )
+
+    with pytest.raises(
+        WebullReduceOnlyCloseManagerError,
+        match="CLOSE_REQUIRES_CASH_ACCOUNT",
+    ):
+        manager.submit(
+            intent=close_intent(),
+            management_armed=True,
+        )
+
+    assert (
+        trade_client.order_v3.place_calls
+        == []
+    )
+
+
+def test_pre_submit_snapshot_runs_before_network(
+    tmp_path,
+):
+    manager, broker, ledger, trade_client = (
+        make_manager(tmp_path)
+    )
+
+    result = manager.submit(
+        intent=close_intent(),
+        management_armed=True,
+    )
+
+    assert result.status == "SUBMITTED"
+
+    assert (
+        manager.snapshot_client.calls
+        == 1
+    )
+
+    assert len(
+        trade_client.order_v3.place_calls
+    ) == 1

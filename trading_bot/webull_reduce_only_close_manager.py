@@ -17,6 +17,9 @@ from .webull_sandbox_broker import (
     WebullSandboxBroker,
     WebullSandboxBrokerError,
 )
+from .webull_sandbox_preflight import (
+    WebullSandboxAccountSnapshotClient,
+)
 
 
 class WebullReduceOnlyCloseManagerError(
@@ -86,6 +89,7 @@ class WebullSandboxReduceOnlyCloseManager:
         *,
         broker: WebullSandboxBroker,
         ledger: WebullReduceOnlyCloseLedger,
+        snapshot_client: WebullSandboxAccountSnapshotClient,
         execution_mode: str = "SANDBOX",
     ) -> None:
         mode = require_safe_execution_mode(
@@ -99,6 +103,7 @@ class WebullSandboxReduceOnlyCloseManager:
 
         self.broker = broker
         self.ledger = ledger
+        self.snapshot_client = snapshot_client
         self.execution_mode = mode
 
     def _fail_broker_mismatch(
@@ -179,6 +184,159 @@ class WebullSandboxReduceOnlyCloseManager:
                     "CLOSE_FILLED_QUANTITY_EXCEEDS_ORDER"
                 ),
             )
+
+    def _reject_other_active_close(
+        self,
+        *,
+        intent: WebullReduceOnlyCloseIntent,
+    ) -> None:
+        active_statuses = {
+            "PREPARED",
+            "SUBMITTING",
+            "SUBMITTED",
+            "SUBMISSION_UNKNOWN",
+            "BROKER_STATE_UNKNOWN",
+            "PARTIALLY_FILLED",
+            "CANCEL_PENDING",
+            "POSITION_STATE_UNKNOWN",
+        }
+
+        for record in self.ledger.load().values():
+            if (
+                record.client_order_id
+                != intent.client_order_id
+                and record.symbol == intent.symbol
+                and record.status in active_statuses
+            ):
+                raise WebullReduceOnlyCloseManagerError(
+                    "ACTIVE_CLOSE_ALREADY_EXISTS"
+                )
+
+    def _reject_pre_submit(
+        self,
+        *,
+        client_order_id: str,
+        reason: str,
+    ) -> None:
+        self.ledger.mark_state(
+            client_order_id=client_order_id,
+            status="REJECTED",
+            last_error=reason,
+        )
+
+        raise WebullReduceOnlyCloseManagerError(
+            reason
+        )
+
+    def _validate_pre_submit_snapshot(
+        self,
+        *,
+        intent: WebullReduceOnlyCloseIntent,
+        snapshot,
+    ) -> None:
+        account = snapshot.account_state
+
+        if (
+            account.account_type
+            .strip()
+            .upper()
+            != "CASH"
+        ):
+            self._reject_pre_submit(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                reason=(
+                    "CLOSE_REQUIRES_CASH_ACCOUNT"
+                ),
+            )
+
+        if not account.data_is_current:
+            self._reject_pre_submit(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                reason=(
+                    "CLOSE_ACCOUNT_DATA_STALE"
+                ),
+            )
+
+        matches = [
+            position
+            for position in snapshot.positions
+            if (
+                position.symbol
+                .strip()
+                .upper()
+                == intent.symbol
+            )
+        ]
+
+        if len(matches) != 1:
+            self._reject_pre_submit(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                reason=(
+                    "CLOSE_POSITION_NOT_EXACTLY_ONE"
+                ),
+            )
+
+        fresh_quantity = float(
+            matches[0].quantity
+        )
+
+        if (
+            abs(
+                fresh_quantity
+                - float(
+                    intent.confirmed_position_quantity
+                )
+            )
+            > 0.00001
+        ):
+            self._reject_pre_submit(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                reason=(
+                    "CLOSE_POSITION_CHANGED_BEFORE_SUBMIT"
+                ),
+            )
+
+        if fresh_quantity < intent.quantity:
+            self._reject_pre_submit(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                reason=(
+                    "CLOSE_QUANTITY_EXCEEDS_FRESH_POSITION"
+                ),
+            )
+
+        for order in snapshot.open_orders:
+            if (
+                order.symbol
+                .strip()
+                .upper()
+                == intent.symbol
+                and order.side
+                .strip()
+                .upper()
+                == "SELL"
+                and float(
+                    order.remaining_quantity
+                )
+                > 0
+            ):
+                self._reject_pre_submit(
+                    client_order_id=(
+                        intent.client_order_id
+                    ),
+                    reason=(
+                        "OPEN_SELL_ORDER_ALREADY_EXISTS"
+                    ),
+                )
 
     def reconcile(
         self,
@@ -455,6 +613,10 @@ class WebullSandboxReduceOnlyCloseManager:
                 "REDUCE_ONLY_CLOSE_MUST_BE_SELL"
             )
 
+        self._reject_other_active_close(
+            intent=intent
+        )
+
         try:
             self.ledger.add_intent(intent)
         except Exception as error:
@@ -469,6 +631,32 @@ class WebullSandboxReduceOnlyCloseManager:
             ),
             status="SUBMITTING",
             last_error=None,
+        )
+
+        try:
+            snapshot = (
+                self.snapshot_client
+                .get_snapshot()
+            )
+
+        except Exception as error:
+            self.ledger.mark_state(
+                client_order_id=(
+                    intent.client_order_id
+                ),
+                status="REJECTED",
+                last_error=(
+                    "CLOSE_PRE_SUBMIT_SNAPSHOT_FAILED"
+                ),
+            )
+
+            raise WebullReduceOnlyCloseManagerError(
+                "CLOSE_PRE_SUBMIT_SNAPSHOT_FAILED"
+            ) from error
+
+        self._validate_pre_submit_snapshot(
+            intent=intent,
+            snapshot=snapshot,
         )
 
         try:

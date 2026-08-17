@@ -270,6 +270,7 @@ def build_webull_sandbox_manual_close_service(
         WebullSandboxReduceOnlyCloseManager(
             broker=broker,
             ledger=close_ledger,
+            snapshot_client=snapshot_client,
             execution_mode=(
                 WEBULL_EXECUTION_MODE
             ),
