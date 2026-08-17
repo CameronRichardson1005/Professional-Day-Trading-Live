@@ -1,3 +1,5 @@
+import time
+
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -68,21 +70,174 @@ class SheetsClient:
             )
         )
 
+        # Cache worksheet handles so repeated writes during the
+        # same live session do not repeatedly fetch worksheet
+        # metadata from Google Sheets.
+        self._worksheet_cache = {}
+
+        # Cache only tables that this SheetsClient has just written.
+        # This lets immediate formatting reuse the exact written
+        # values instead of reading the whole worksheet again.
+        self._worksheet_values_cache = {}
+
+    @staticmethod
+    def _is_sheets_quota_429(
+            error: Exception,
+    ) -> bool:
+        """
+        Return True only for Google Sheets API quota HTTP 429s.
+
+        Authentication, permission, schema, worksheet, and other
+        API failures must not be silently retried here.
+        """
+        if not isinstance(
+            error,
+            gspread.exceptions.APIError,
+        ):
+            return False
+
+        response = getattr(
+            error,
+            "response",
+            None,
+        )
+
+        status_code = getattr(
+            response,
+            "status_code",
+            None,
+        )
+
+        if status_code == 429:
+            return True
+
+        error_code = getattr(
+            error,
+            "code",
+            None,
+        )
+
+        if error_code == 429:
+            return True
+
+        message = str(error).lower()
+
+        return (
+            "[429]" in message
+            and "quota" in message
+        )
+
+    def _sheets_read_with_quota_retry(
+            self,
+            func,
+            *args,
+            label: str = "Google Sheets read",
+            max_attempts: int = 3,
+            **kwargs,
+    ):
+        """
+        Retry only temporary Google Sheets 429 quota errors.
+
+        Attempts:
+        1. immediate
+        2. after 15 seconds
+        3. after 30 seconds
+
+        Any non-429 error is raised immediately.
+        """
+        retry_delays = (
+            15,
+            30,
+        )
+
+        for attempt in range(
+            1,
+            max_attempts + 1,
+        ):
+            try:
+                return func(
+                    *args,
+                    **kwargs,
+                )
+
+            except Exception as error:
+                if not self._is_sheets_quota_429(
+                    error
+                ):
+                    raise
+
+                if attempt >= max_attempts:
+                    raise
+
+                delay_index = min(
+                    attempt - 1,
+                    len(retry_delays) - 1,
+                )
+
+                wait_seconds = (
+                    retry_delays[
+                        delay_index
+                    ]
+                )
+
+                print(
+                    f"{label} hit Google Sheets "
+                    f"quota 429 "
+                    f"(attempt "
+                    f"{attempt}/{max_attempts}). "
+                    f"Retrying in "
+                    f"{wait_seconds} seconds."
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+        raise RuntimeError(
+            f"{label} retry loop exited unexpectedly."
+        )
+
     def get_or_create_worksheet(
         self,
         title: str,
         rows: int = 100,
         cols: int = 20,
     ):
+        cache = getattr(
+            self,
+            "_worksheet_cache",
+            None,
+        )
+
+        if cache is None:
+            cache = {}
+            self._worksheet_cache = cache
+
+        if title in cache:
+            return cache[title]
+
         try:
-            return self.spreadsheet.worksheet(title)
+            worksheet = (
+                self._sheets_read_with_quota_retry(
+                    self.spreadsheet.worksheet,
+                    title,
+                    label=(
+                        "Google Sheets worksheet "
+                        f"lookup: {title}"
+                    ),
+                )
+            )
 
         except gspread.exceptions.WorksheetNotFound:
-            return self.spreadsheet.add_worksheet(
+            worksheet = self.spreadsheet.add_worksheet(
                 title=title,
                 rows=rows,
                 cols=cols,
             )
+
+        cache[title] = worksheet
+
+        return worksheet
     @staticmethod
     def _validate_header(
         existing_values: list[list[str]],
@@ -130,8 +285,22 @@ class SheetsClient:
         columns: list[str],
         rows: list[list],
         last_column: str,
+        existing_row_count: int | None = None,
     ) -> None:
-        existing_row_count = len(worksheet.get_all_values())
+        # Callers that already read the worksheet pass the existing
+        # row count so this method does not immediately read the same
+        # worksheet a second time.
+        if existing_row_count is None:
+            existing_row_count = len(
+                self._sheets_read_with_quota_retry(
+                    worksheet.get_all_values,
+                    label=(
+                        "Google Sheets table read: "
+                        f"{worksheet.title}"
+                    ),
+                )
+            )
+
         table = [columns, *rows]
 
         worksheet.update(
@@ -152,6 +321,29 @@ class SheetsClient:
                 ]
             )
 
+        cache = getattr(
+            self,
+            "_worksheet_values_cache",
+            None,
+        )
+
+        if cache is None:
+            cache = {}
+            self._worksheet_values_cache = cache
+
+        cache[
+            str(
+                getattr(
+                    worksheet,
+                    "title",
+                    "",
+                )
+            )
+        ] = [
+            list(row)
+            for row in table
+        ]
+
     def _replace_date_rows(
         self,
         worksheet,
@@ -161,7 +353,15 @@ class SheetsClient:
         last_column: str,
         sheet_name: str,
     ) -> None:
-        existing_values = worksheet.get_all_values()
+        existing_values = (
+            self._sheets_read_with_quota_retry(
+                worksheet.get_all_values,
+                label=(
+                    "Google Sheets reconciliation read: "
+                    f"{sheet_name}"
+                ),
+            )
+        )
 
         self._validate_header(
             existing_values=existing_values,
@@ -188,6 +388,9 @@ class SheetsClient:
                 *replacement_rows,
             ],
             last_column=last_column,
+            existing_row_count=len(
+                existing_values
+            ),
         )
     def test_connection(self) -> list[str]:
         worksheets = self.spreadsheet.worksheets()
@@ -599,13 +802,49 @@ class SheetsClient:
                 }
             )
 
-    def format_worksheet(self, worksheet) -> None:
+    def format_worksheet(
+            self,
+            worksheet,
+            *,
+            use_cached_values: bool = True,
+    ) -> None:
         """
         Apply consistent professional formatting to a worksheet.
 
-        This does not delete, rename, or replace any data.
+        When this SheetsClient just rewrote the worksheet, reuse
+        those exact values instead of issuing another Google Sheets
+        read request.
         """
-        values = worksheet.get_all_values()
+        cache = getattr(
+            self,
+            "_worksheet_values_cache",
+            {},
+        )
+
+        cache_key = str(
+            getattr(
+                worksheet,
+                "title",
+                "",
+            )
+        )
+
+        values = (
+            cache.get(cache_key)
+            if use_cached_values
+            else None
+        )
+
+        if values is None:
+            values = (
+                self._sheets_read_with_quota_retry(
+                    worksheet.get_all_values,
+                    label=(
+                        "Google Sheets formatting read: "
+                        f"{worksheet.title}"
+                    ),
+                )
+            )
 
         if not values:
             return
@@ -994,7 +1233,10 @@ class SheetsClient:
 
         for worksheet in self.spreadsheet.worksheets():
             try:
-                self.format_worksheet(worksheet)
+                self.format_worksheet(
+                    worksheet,
+                    use_cached_values=False,
+                )
                 formatted += 1
             except Exception as error:
                 print(
@@ -1006,12 +1248,20 @@ class SheetsClient:
             f"{formatted} worksheet(s) professionally formatted."
         )
 
-    @staticmethod
     def _sheet_rows_for_date(
+        self,
         worksheet,
         date_str: str,
     ) -> tuple[list[str], list[list[str]]]:
-        values = worksheet.get_all_values()
+        values = (
+            self._sheets_read_with_quota_retry(
+                worksheet.get_all_values,
+                label=(
+                    "Google Sheets date lookup: "
+                    f"{worksheet.title}"
+                ),
+            )
+        )
 
         if not values:
             return [], []
