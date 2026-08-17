@@ -74,6 +74,7 @@ class WebullExecutionLedger:
         "SUBMITTING",
         "SUBMITTED",
         "SUBMISSION_UNKNOWN",
+        "BROKER_STATE_UNKNOWN",
         "REJECTED",
         "PARTIALLY_FILLED",
         "FILLED",
@@ -773,6 +774,19 @@ class WebullExecutionLedger:
             status="CANCEL_PENDING",
         )
 
+    def mark_operation_state(
+        self,
+        *,
+        client_order_id: str,
+        status: str,
+        last_error: str | None = None,
+    ) -> WebullExecutionRecord:
+        return self._replace_record(
+            client_order_id,
+            status=status,
+            last_error=last_error,
+        )
+
     def record_broker_state(
         self,
         *,
@@ -781,6 +795,8 @@ class WebullExecutionLedger:
         broker_order_id: str | None = None,
         filled_quantity: float = 0,
         average_fill_price: float | None = None,
+        quantity: int | None = None,
+        limit_price: float | None = None,
         status: str = "SUBMITTED",
     ) -> WebullExecutionRecord:
         now = self.clock()
@@ -790,6 +806,28 @@ class WebullExecutionLedger:
                 "LEDGER_CLOCK_MUST_BE_TIMEZONE_AWARE"
             )
 
+        records = self.load()
+
+        key = client_order_id.strip()
+        record = records.get(key)
+
+        if record is None:
+            raise WebullExecutionLedgerError(
+                "EXECUTION_ORDER_NOT_FOUND"
+            )
+
+        effective_quantity = (
+            record.quantity
+            if quantity is None
+            else int(quantity)
+        )
+
+        effective_limit_price = (
+            record.limit_price
+            if limit_price is None
+            else float(limit_price)
+        )
+
         return self._replace_record(
             client_order_id,
             status=status,
@@ -797,6 +835,8 @@ class WebullExecutionLedger:
             broker_status=(
                 broker_status.strip().upper()
             ),
+            quantity=effective_quantity,
+            limit_price=effective_limit_price,
             filled_quantity=(
                 float(filled_quantity)
             ),

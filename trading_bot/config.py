@@ -350,3 +350,21 @@ WEBULL_EXECUTION_LEDGER_FILE = Path(
         ),
     )
 )
+
+
+# A second explicit arming control for broker-mutating sandbox
+# operations. WEBULL_EXECUTION_MODE=SANDBOX alone is not enough.
+WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED = (
+    os.getenv(
+        "WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED",
+        "false",
+    ).strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
+# Explicit sandbox account selection prevents silently choosing
+# the first account returned by Webull.
+WEBULL_SANDBOX_ACCOUNT_ID = os.getenv(
+    "WEBULL_SANDBOX_ACCOUNT_ID",
+    "",
+).strip()
