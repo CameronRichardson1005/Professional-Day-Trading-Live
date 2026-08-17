@@ -8,6 +8,7 @@ from trading_bot.market_calendar import nyse_trading_dates
 from trading_bot.webull_sandbox_runtime import (
     build_webull_sandbox_preflight,
     discover_webull_sandbox_accounts,
+    inspect_webull_sandbox_account,
 )
 from trading_bot.utils import setup_logging
 
@@ -25,6 +26,7 @@ AVAILABLE_MODES = (
     "webull-approval-request",
     "webull-approval-confirm",
     "webull-paper-submit",
+    "webull-sandbox-account-status",
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
     "webull-pnl",
@@ -97,6 +99,100 @@ def main() -> int:
         #
         # This command cannot place, modify, or cancel orders.
         # -----------------------------------------
+        if mode == "webull-sandbox-account-status":
+            if len(sys.argv) != 3:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-account-status "
+                    "ACCOUNT_ID"
+                )
+                return 2
+
+            account_id = sys.argv[2].strip()
+
+            try:
+                snapshot = (
+                    inspect_webull_sandbox_account(
+                        account_id
+                    )
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX ACCOUNT "
+                    "STATUS FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "READ-ONLY — NO WEBULL ORDER "
+                    "WAS PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            state = snapshot.account_state
+
+            print()
+            print(
+                "WEBULL SANDBOX ACCOUNT STATUS"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                f"Account: {snapshot.account_id}"
+            )
+            print(
+                f"Type: {state.account_type}"
+            )
+            print(
+                "Available cash: "
+                f"${state.available_cash:.2f}"
+            )
+
+            if state.buying_power is None:
+                print(
+                    "Buying power: unavailable"
+                )
+            else:
+                print(
+                    "Buying power: "
+                    f"${state.buying_power:.2f}"
+                )
+
+            print(
+                "Positions: "
+                f"{snapshot.position_count}"
+            )
+            print(
+                "Position exposure: "
+                f"${state.position_exposure:.2f}"
+            )
+            print(
+                "Open orders: "
+                f"{snapshot.open_order_count}"
+            )
+            print(
+                "Open BUY exposure: "
+                f"${state.open_buy_order_exposure:.2f}"
+            )
+            print(
+                "Total exposure: "
+                f"${state.current_total_exposure:.2f}"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "READ-ONLY — NO WEBULL ORDER "
+                "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
         if mode == "webull-sandbox-accounts":
             if len(sys.argv) != 2:
                 print(

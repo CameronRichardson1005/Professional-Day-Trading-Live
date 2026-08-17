@@ -126,3 +126,32 @@ def discover_webull_sandbox_accounts(
     return list_sandbox_accounts(
         payload
     )
+
+
+
+def inspect_webull_sandbox_account(
+    account_id: str,
+):
+    """
+    Return a read-only snapshot for one explicitly selected
+    Webull sandbox account.
+
+    No placement, replacement, or cancellation operation is
+    exposed.
+    """
+
+    selected = account_id.strip()
+
+    if not selected:
+        raise ValueError(
+            "SANDBOX_ACCOUNT_ID_REQUIRED"
+        )
+
+    client = (
+        WebullSandboxAccountSnapshotClient(
+            account_id=selected,
+            execution_mode=WEBULL_EXECUTION_MODE,
+        )
+    )
+
+    return client.get_snapshot()

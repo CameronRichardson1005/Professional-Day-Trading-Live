@@ -47,6 +47,7 @@ class WebullSandboxPreflightError(RuntimeError):
 class WebullSandboxSnapshot:
     account_id: str
     account_state: WebullAccountState
+    position_count: int
     open_order_count: int
     open_client_order_ids: tuple[str, ...]
 
@@ -479,6 +480,9 @@ class WebullSandboxAccountSnapshotClient:
                 buying_power=(
                     balance.buying_power
                 ),
+            ),
+            position_count=len(
+                positions
             ),
             open_order_count=len(
                 open_orders
