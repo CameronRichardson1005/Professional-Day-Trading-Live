@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from webull.core.client import ApiClient
-from webull.trade.trade_client import TradeClient
-
 from .config import (
     WEBULL_EXECUTION_LEDGER_FILE,
     WEBULL_EXECUTION_MODE,
@@ -12,6 +9,9 @@ from .config import (
 )
 from .webull_execution_ledger import (
     WebullExecutionLedger,
+)
+from .webull_sdk_safety import (
+    build_quiet_trade_client,
 )
 from .webull_sandbox_broker import (
     SANDBOX_ENDPOINT,
@@ -90,19 +90,10 @@ def discover_webull_sandbox_accounts(
             "SANDBOX_APP_SECRET_REQUIRED"
         )
 
-    api_client = ApiClient(
-        WEBULL_SANDBOX_APP_KEY,
-        WEBULL_SANDBOX_APP_SECRET,
-        "us",
-    )
-
-    api_client.add_endpoint(
-        "us",
-        SANDBOX_ENDPOINT,
-    )
-
-    trade_client = TradeClient(
-        api_client
+    trade_client = build_quiet_trade_client(
+        app_key=WEBULL_SANDBOX_APP_KEY,
+        app_secret=WEBULL_SANDBOX_APP_SECRET,
+        endpoint=SANDBOX_ENDPOINT,
     )
 
     try:

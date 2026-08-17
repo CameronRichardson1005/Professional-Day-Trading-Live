@@ -3,15 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from webull.core.client import ApiClient
-from webull.trade.trade_client import TradeClient
-
 from .config import (
     WEBULL_EXECUTION_MODE,
     WEBULL_SANDBOX_ACCOUNT_ID,
     WEBULL_SANDBOX_APP_KEY,
     WEBULL_SANDBOX_APP_SECRET,
     WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED,
+)
+from .webull_sdk_safety import (
+    build_quiet_trade_client,
 )
 from .webull_execution import (
     WebullExecutionMode,
@@ -270,19 +270,12 @@ class WebullSandboxBroker:
                 "SANDBOX_APP_SECRET_REQUIRED"
             )
 
-        api_client = ApiClient(
-            WEBULL_SANDBOX_APP_KEY,
-            WEBULL_SANDBOX_APP_SECRET,
-            "us",
-        )
-
-        api_client.add_endpoint(
-            "us",
-            SANDBOX_ENDPOINT,
-        )
-
-        self._trade_client = TradeClient(
-            api_client
+        self._trade_client = (
+            build_quiet_trade_client(
+                app_key=WEBULL_SANDBOX_APP_KEY,
+                app_secret=WEBULL_SANDBOX_APP_SECRET,
+                endpoint=SANDBOX_ENDPOINT,
+            )
         )
 
     def _require_submission_enabled(
