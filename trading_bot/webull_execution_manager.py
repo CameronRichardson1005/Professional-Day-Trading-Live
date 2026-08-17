@@ -13,6 +13,7 @@ from .webull_execution_ledger import (
 from .webull_safety import (
     WebullAccountState,
     WebullOrderProposal,
+    WebullReplacementProposal,
     WebullSafetyGate,
 )
 from .webull_sandbox_broker import (
@@ -119,6 +120,40 @@ class WebullSandboxExecutionManager:
         if not decision.allowed:
             raise WebullExecutionManagerError(
                 "SAFETY_GATE_REJECTED:"
+                f"{decision.reason}"
+            )
+
+    @staticmethod
+    def _check_replacement_safety(
+        *,
+        current: WebullExecutionRecord,
+        account: WebullAccountState,
+        quantity: int,
+        limit_price: float,
+    ) -> None:
+        proposal = WebullReplacementProposal(
+            symbol=current.symbol,
+            side=current.side,
+            current_quantity=current.quantity,
+            current_limit_price=current.limit_price,
+            current_filled_quantity=(
+                current.filled_quantity
+            ),
+            replacement_quantity=quantity,
+            replacement_limit_price=limit_price,
+        )
+
+        decision = (
+            WebullSafetyGate
+            .evaluate_replacement(
+                account=account,
+                proposal=proposal,
+            )
+        )
+
+        if not decision.allowed:
+            raise WebullExecutionManagerError(
+                "REPLACEMENT_SAFETY_GATE_REJECTED:"
                 f"{decision.reason}"
             )
 
@@ -246,12 +281,52 @@ class WebullSandboxExecutionManager:
         quantity: int,
         limit_price: float,
         reason: str,
+        account: WebullAccountState,
+        management_armed: bool,
     ) -> WebullExecutionRecord:
+        if not management_armed:
+            raise WebullExecutionManagerError(
+                "ORDER_MANAGEMENT_NOT_ARMED"
+            )
+
+        # Establish authoritative broker state before deciding
+        # whether replacement is permitted.
+        current = self.reconcile(
+            client_order_id=client_order_id
+        )
+
+        if current.status not in {
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+        }:
+            raise WebullExecutionManagerError(
+                "ORDER_NOT_REPLACEABLE:"
+                f"{current.status}"
+            )
+
+        if current.cancel_requested:
+            raise WebullExecutionManagerError(
+                "ORDER_CANCEL_ALREADY_REQUESTED"
+            )
+
+        # Safety is checked BEFORE creating a manual override or
+        # durable replacement request, so rejected modifications
+        # do not pollute the execution state.
+        self._check_replacement_safety(
+            current=current,
+            account=account,
+            quantity=quantity,
+            limit_price=limit_price,
+        )
+
         self.ledger.mark_manual_override(
             client_order_id=client_order_id,
             reason=reason,
         )
 
+        # Persist exactly what we intend to change before the
+        # broker mutation. Ambiguous transport failures therefore
+        # remain recoverable without a blind retry.
         self.ledger.mark_replace_requested(
             client_order_id=client_order_id,
             quantity=quantity,
@@ -265,6 +340,9 @@ class WebullSandboxExecutionManager:
                 ),
                 quantity=quantity,
                 limit_price=limit_price,
+                management_enabled=(
+                    management_armed
+                ),
             )
 
         except WebullSandboxBrokerError as error:
@@ -317,9 +395,8 @@ class WebullSandboxExecutionManager:
                 client_order_id=client_order_id
             )
 
-        # Webull accepted the replace request but Order Detail
-        # has not reflected the requested quantity/price yet.
-        # Preserve the desired state durably and fail closed.
+        # Broker accepted the request, but Order Detail has not
+        # reflected it yet. Keep desired state durable.
         return self.ledger.mark_operation_state(
             client_order_id=client_order_id,
             status="REPLACE_PENDING",

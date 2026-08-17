@@ -157,6 +157,28 @@ def make_account():
     )
 
 
+
+def make_replacement_account():
+    """
+    Fresh account snapshot containing the reservation of the
+    existing make_intent() BUY order.
+    """
+
+    intent = make_intent()
+
+    return WebullAccountState(
+        account_type="CASH",
+        available_cash=1000.0,
+        position_exposure=0.0,
+        open_buy_order_exposure=round(
+            intent.quantity
+            * intent.limit_price,
+            2,
+        ),
+        data_is_current=True,
+        buying_power=1000.0,
+    )
+
 def make_manager(
     tmp_path: Path,
 ):
@@ -287,6 +309,7 @@ def test_replace_uses_minimal_modify_payload():
         client_order_id="order-1",
         quantity=12,
         limit_price=6.20,
+        management_enabled=True,
     )
 
     _, payload = (
@@ -409,6 +432,8 @@ def test_manual_replace_sets_override(
         quantity=12,
         limit_price=6.20,
         reason="USER_CHANGED_ORDER",
+        account=make_replacement_account(),
+        management_armed=True,
     )
 
     assert result.manual_override is True
@@ -645,6 +670,8 @@ def test_replace_waiting_for_broker_stays_pending(
         quantity=12,
         limit_price=6.20,
         reason="USER_CHANGED_ORDER",
+        account=make_replacement_account(),
+        management_armed=True,
     )
 
     assert result.status == "REPLACE_PENDING"
@@ -705,6 +732,8 @@ def test_replace_transport_uncertainty_preserves_request(
             quantity=12,
             limit_price=6.20,
             reason="USER_CHANGED_ORDER",
+            account=make_replacement_account(),
+            management_armed=True,
         )
 
     stored = ledger.load()["order-1"]
@@ -728,3 +757,159 @@ def test_replace_transport_uncertainty_preserves_request(
     assert len(
         trade_client.order_v3.replace_calls
     ) == 1
+
+
+
+def test_replace_requires_management_arm(
+    tmp_path,
+):
+    (
+        manager,
+        broker,
+        ledger,
+        trade_client,
+    ) = make_manager(tmp_path)
+
+    manager.submit(
+        intent=make_intent(),
+        account=make_account(),
+    )
+
+    before = len(
+        trade_client.order_v3.replace_calls
+    )
+
+    with pytest.raises(
+        WebullExecutionManagerError,
+        match="ORDER_MANAGEMENT_NOT_ARMED",
+    ):
+        manager.replace_manual(
+            client_order_id="order-1",
+            quantity=12,
+            limit_price=6.20,
+            reason="USER_CHANGED_ORDER",
+            account=make_replacement_account(),
+            management_armed=False,
+        )
+
+    assert (
+        len(trade_client.order_v3.replace_calls)
+        == before
+    )
+
+    stored = ledger.load()["order-1"]
+
+    assert stored.manual_override is False
+    assert (
+        stored.replace_requested_quantity
+        is None
+    )
+
+
+def test_replace_safety_runs_before_mutation(
+    tmp_path,
+):
+    (
+        manager,
+        broker,
+        ledger,
+        trade_client,
+    ) = make_manager(tmp_path)
+
+    manager.submit(
+        intent=make_intent(),
+        account=make_account(),
+    )
+
+    unsafe_account = WebullAccountState(
+        account_type="CASH",
+        available_cash=1000.0,
+        position_exposure=0.0,
+        open_buy_order_exposure=0.0,
+        data_is_current=True,
+        buying_power=1000.0,
+    )
+
+    before = len(
+        trade_client.order_v3.replace_calls
+    )
+
+    with pytest.raises(
+        WebullExecutionManagerError,
+        match=(
+            "REPLACEMENT_SAFETY_GATE_REJECTED:"
+            "CURRENT_ORDER_EXPOSURE_NOT_PRESENT"
+        ),
+    ):
+        manager.replace_manual(
+            client_order_id="order-1",
+            quantity=12,
+            limit_price=6.20,
+            reason="USER_CHANGED_ORDER",
+            account=unsafe_account,
+            management_armed=True,
+        )
+
+    assert (
+        len(trade_client.order_v3.replace_calls)
+        == before
+    )
+
+    stored = ledger.load()["order-1"]
+
+    assert stored.manual_override is False
+    assert (
+        stored.replace_requested_quantity
+        is None
+    )
+
+
+def test_broker_replace_management_is_independent_of_entry_arm():
+    trade_client = FakeTradeClient()
+
+    broker = WebullSandboxBroker(
+        trade_client=trade_client,
+        account_id="sandbox-account",
+        execution_mode="SANDBOX",
+        submission_enabled=False,
+    )
+
+    broker.replace_order(
+        client_order_id="order-1",
+        quantity=1,
+        limit_price=5.10,
+        management_enabled=True,
+    )
+
+    assert len(
+        trade_client.order_v3.replace_calls
+    ) == 1
+
+
+def test_broker_replace_requires_management_arm():
+    trade_client = FakeTradeClient()
+
+    broker = WebullSandboxBroker(
+        trade_client=trade_client,
+        account_id="sandbox-account",
+        execution_mode="SANDBOX",
+        submission_enabled=True,
+    )
+
+    with pytest.raises(
+        WebullSandboxBrokerError,
+        match=(
+            "SANDBOX_ORDER_MANAGEMENT_NOT_ENABLED"
+        ),
+    ):
+        broker.replace_order(
+            client_order_id="order-1",
+            quantity=1,
+            limit_price=5.10,
+            management_enabled=False,
+        )
+
+    assert (
+        trade_client.order_v3.replace_calls
+        == []
+    )

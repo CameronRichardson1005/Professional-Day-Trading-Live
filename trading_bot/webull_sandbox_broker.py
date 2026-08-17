@@ -337,8 +337,12 @@ class WebullSandboxBroker:
         client_order_id: str,
         quantity: int,
         limit_price: float,
+        management_enabled: bool = False,
     ) -> None:
-        self._require_submission_enabled()
+        if not management_enabled:
+            raise WebullSandboxBrokerError(
+                "SANDBOX_ORDER_MANAGEMENT_NOT_ENABLED"
+            )
 
         key = client_order_id.strip()
 

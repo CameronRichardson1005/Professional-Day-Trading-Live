@@ -362,6 +362,19 @@ WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED = (
     in {"1", "true", "yes", "on"}
 )
 
+
+# Independent arm for modifying an already-existing sandbox
+# order. This does NOT permit new order placement.
+#
+# Cancellation remains rescue-capable even when this is false.
+WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED = (
+    os.getenv(
+        "WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED",
+        "false",
+    ).strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+
 # Explicit sandbox account selection prevents silently choosing
 # the first account returned by Webull.
 WEBULL_SANDBOX_ACCOUNT_ID = os.getenv(
