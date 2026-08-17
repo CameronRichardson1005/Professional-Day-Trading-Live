@@ -16,6 +16,11 @@ from .webull_safety import (
     WebullReplacementProposal,
     WebullSafetyGate,
 )
+from .webull_account_risk import (
+    WebullAccountRiskGate,
+    WebullExecutionRiskLimits,
+    WebullExecutionRiskState,
+)
 from .webull_sandbox_broker import (
     WebullBrokerOrderState,
     WebullSandboxBroker,
@@ -210,6 +215,55 @@ class WebullSandboxExecutionManager:
             status=_ledger_status(
                 state.broker_status
             ),
+        )
+
+    def submit_with_account_risk(
+        self,
+        *,
+        intent: WebullTradeIntent,
+        account: WebullAccountState,
+        risk_state: WebullExecutionRiskState,
+        risk_limits: WebullExecutionRiskLimits,
+    ) -> WebullExecutionRecord:
+        """
+        Explicit account-risk-protected BUY submission path.
+
+        Account-wide risk is evaluated before the normal
+        execution safety gate, durable ledger mutation, or broker
+        operation.
+
+        Callers must supply both current risk state and explicit
+        limits. There are deliberately no guessed production
+        thresholds here.
+        """
+
+        decision = (
+            WebullAccountRiskGate
+            .evaluate_new_buy(
+                account=account,
+                proposal=WebullOrderProposal(
+                    symbol=intent.symbol,
+                    side=intent.side,
+                    quantity=intent.quantity,
+                    limit_price=(
+                        intent.limit_price
+                    ),
+                    manually_approved=False,
+                ),
+                risk_state=risk_state,
+                limits=risk_limits,
+            )
+        )
+
+        if not decision.allowed:
+            raise WebullExecutionManagerError(
+                "ACCOUNT_RISK_GATE_REJECTED:"
+                f"{decision.reason}"
+            )
+
+        return self.submit(
+            intent=intent,
+            account=account,
         )
 
     def submit(
