@@ -5,6 +5,7 @@ from datetime import date
 
 from trading_bot.bot import TradingBot
 from trading_bot.market_calendar import nyse_trading_dates
+from trading_bot.webull_sandbox_runtime import build_webull_sandbox_preflight
 from trading_bot.utils import setup_logging
 
 
@@ -21,6 +22,7 @@ AVAILABLE_MODES = (
     "webull-approval-request",
     "webull-approval-confirm",
     "webull-paper-submit",
+    "webull-sandbox-preflight",
     "webull-pnl",
     "production",
 )
@@ -85,6 +87,81 @@ def main() -> int:
                 f"{check_date.isoformat()}."
             )
             return 2
+
+        # -----------------------------------------
+        # Read-only Webull sandbox execution preflight
+        #
+        # This command cannot place, modify, or cancel orders.
+        # -----------------------------------------
+        if mode == "webull-sandbox-preflight":
+            if len(sys.argv) != 2:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-preflight"
+                )
+                return 2
+
+            try:
+                preflight = (
+                    build_webull_sandbox_preflight()
+                )
+
+                report = preflight.run()
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX PREFLIGHT FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(f"Reason: {error}")
+                print(
+                    "NO WEBULL ORDER WAS PLACED, "
+                    "MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX PREFLIGHT PASSED"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                f"Account: {report.account_id}"
+            )
+            print(
+                "Available cash: "
+                f"${report.available_cash:.2f}"
+            )
+            print(
+                "Current exposure: "
+                f"${report.current_exposure:.2f}"
+            )
+            print(
+                "Open orders: "
+                f"{report.open_orders}"
+            )
+            print(
+                "Orders reconciled: "
+                f"{report.reconciled_orders}"
+            )
+            print(
+                "Active manual overrides: "
+                f"{report.active_manual_overrides}"
+            )
+            print(
+                f"Status: {report.reason}"
+            )
+            print(
+                "READ-ONLY — NO WEBULL ORDER "
+                "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
 
         bot = TradingBot()
 
