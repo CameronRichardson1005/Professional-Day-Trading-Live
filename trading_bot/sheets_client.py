@@ -2959,19 +2959,19 @@ class SheetsClient:
             sheet_name: str = "Trade Previews",
     ) -> None:
         """
-        Replace the today-only preview dashboard.
-
-        This sheet intentionally shows only concise preview data.
-        Historical detail remains preserved in the strategy-specific
-        worksheets.
+        Replace the current-session capital-allocation dashboard.
         """
         columns = [
+            "Date",
             "Time",
+            "Rank",
             "Strategy",
             "Stock",
             "Entry",
             "Exit",
             "Quantity",
+            "Allocation %",
+            "Recommended Allocation $",
             "Status",
         ]
 
@@ -2981,8 +2981,6 @@ class SheetsClient:
             cols=len(columns),
         )
 
-        rows = []
-
         display_statuses = {
             "PREVIEW READY",
             "BLOCKED BY MANIPULATION",
@@ -2990,7 +2988,42 @@ class SheetsClient:
             "PREVIEW FAILED",
         }
 
-        for preview in previews:
+        def rank_sort_key(preview):
+            value = preview.get(
+                "rank",
+                "",
+            )
+
+            try:
+                rank = int(value)
+            except (
+                TypeError,
+                ValueError,
+            ):
+                rank = 999999
+
+            return (
+                rank,
+                str(
+                    preview.get(
+                        "strategy",
+                        "",
+                    )
+                ),
+                str(
+                    preview.get(
+                        "symbol",
+                        "",
+                    )
+                ),
+            )
+
+        rows = []
+
+        for preview in sorted(
+            previews,
+            key=rank_sort_key,
+        ):
             status = str(
                 preview.get(
                     "status",
@@ -3001,12 +3034,23 @@ class SheetsClient:
             if status not in display_statuses:
                 continue
 
+            rank = preview.get(
+                "rank",
+                "",
+            )
+
             strategy = str(
-                preview.get("strategy", "")
+                preview.get(
+                    "strategy",
+                    "",
+                )
             ).strip()
 
             symbol = str(
-                preview.get("symbol", "")
+                preview.get(
+                    "symbol",
+                    "",
+                )
             ).strip().upper()
 
             entry = preview.get(
@@ -3031,14 +3075,48 @@ class SheetsClient:
                 )
             ).strip()
 
+            allocation_weight = preview.get(
+                "allocation_weight",
+                "",
+            )
+
+            if allocation_weight in {
+                "",
+                None,
+            }:
+                allocation_percent = ""
+            else:
+                allocation_percent = (
+                    f"{float(allocation_weight) * 100:.2f}%"
+                )
+
+            recommended = preview.get(
+                "recommended_allocation",
+                "",
+            )
+
+            if recommended in {
+                "",
+                None,
+            }:
+                recommended_text = ""
+            else:
+                recommended_text = (
+                    f"${float(recommended):.2f}"
+                )
+
             rows.append([
+                date_str,
                 preview_time,
+                rank,
                 strategy,
                 symbol,
                 entry,
                 exit_value,
                 quantity,
-                "PREVIEW READY",
+                allocation_percent,
+                recommended_text,
+                status,
             ])
 
         worksheet.clear()
@@ -3048,10 +3126,13 @@ class SheetsClient:
             *rows,
         ]
 
-        last_column = "G"
+        last_column = "K"
 
         worksheet.resize(
-            rows=max(250, len(table) + 20),
+            rows=max(
+                250,
+                len(table) + 20,
+            ),
             cols=len(columns),
         )
 
@@ -3072,6 +3153,7 @@ class SheetsClient:
             f"written to the {sheet_name} sheet "
             f"for {date_str}."
         )
+
 
     def write_orders(
             self,

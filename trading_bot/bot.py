@@ -1642,8 +1642,14 @@ class TradingBot:
             date_str: str,
     ) -> None:
         """
-        Rebuild the concise today-only preview dashboard from
-        Manipulation and Quick Flip PREVIEW READY records.
+        Rebuild the concise current-session capital dashboard.
+
+        PREVIEW READY rows use the committed policy's real rank,
+        allocation weight, and recommended allocation.
+
+        Valid Quick Flip signals blocked by an earlier causal
+        capital event remain visible with zero allocation. No
+        blocked row implies a broker preview or submission.
         """
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -1655,7 +1661,9 @@ class TradingBot:
                 "New trading workbook was not initialised."
             )
 
-        eastern = ZoneInfo("America/New_York")
+        eastern = ZoneInfo(
+            "America/New_York"
+        )
 
         previews = []
 
@@ -1681,6 +1689,10 @@ class TradingBot:
                 "time": datetime.now(
                     eastern
                 ).strftime("%H:%M:%S"),
+                "rank": preview.get(
+                    "allocationRank",
+                    "",
+                ),
                 "strategy": "Manipulation",
                 "symbol": stock.symbol,
                 "entry": preview.get(
@@ -1693,6 +1705,14 @@ class TradingBot:
                 ),
                 "quantity": preview.get(
                     "quantity",
+                    "",
+                ),
+                "allocation_weight": preview.get(
+                    "allocationWeight",
+                    "",
+                ),
+                "recommended_allocation": preview.get(
+                    "recommendedAllocation",
                     "",
                 ),
                 "status": "PREVIEW READY",
@@ -1714,6 +1734,7 @@ class TradingBot:
                 "takeProfit1",
                 "",
             )
+
             tp2 = preview.get(
                 "takeProfit2",
                 "",
@@ -1732,6 +1753,10 @@ class TradingBot:
                 "time": datetime.now(
                     eastern
                 ).strftime("%H:%M:%S"),
+                "rank": preview.get(
+                    "allocationRank",
+                    "",
+                ),
                 "strategy": "Quick Flip",
                 "symbol": preview.get(
                     "symbol",
@@ -1746,17 +1771,17 @@ class TradingBot:
                     "quantity",
                     "",
                 ),
+                "allocation_weight": preview.get(
+                    "allocationWeight",
+                    "",
+                ),
+                "recommended_allocation": preview.get(
+                    "recommendedAllocation",
+                    "",
+                ),
                 "status": "PREVIEW READY",
             })
 
-        # A valid Quick Flip signal can be causally blocked from
-        # receiving capital when the 09:45 Manipulation event
-        # already consumed the deployable pool, or when an earlier
-        # Quick Flip confirmation group already consumed it.
-        #
-        # Preserve those setups on the concise dashboard for audit
-        # visibility without pretending that a Webull preview or
-        # broker order occurred.
         ready_qf_symbols = {
             str(
                 preview.get(
@@ -1770,13 +1795,8 @@ class TradingBot:
                 [],
             )
             if (
-                isinstance(
-                    preview,
-                    dict,
-                )
-                and preview.get(
-                    "status"
-                )
+                isinstance(preview, dict)
+                and preview.get("status")
                 == "PREVIEW READY"
             )
         }
@@ -1846,6 +1866,12 @@ class TradingBot:
                 None,
             )
 
+            display_time = (
+                datetime.now(
+                    eastern
+                ).strftime("%H:%M:%S")
+            )
+
             if confirmation is not None:
                 try:
                     if hasattr(
@@ -1862,7 +1888,7 @@ class TradingBot:
                             )
                         )
                     else:
-                        parsed_confirmation = (
+                        parsed = (
                             datetime.fromisoformat(
                                 str(
                                     confirmation
@@ -1874,7 +1900,7 @@ class TradingBot:
                         )
 
                         display_time = (
-                            parsed_confirmation
+                            parsed
                             .astimezone(
                                 eastern
                             )
@@ -1883,21 +1909,7 @@ class TradingBot:
                             )
                         )
                 except Exception:
-                    display_time = (
-                        datetime.now(
-                            eastern
-                        ).strftime(
-                            "%H:%M:%S"
-                        )
-                    )
-            else:
-                display_time = (
-                    datetime.now(
-                        eastern
-                    ).strftime(
-                        "%H:%M:%S"
-                    )
-                )
+                    pass
 
             tp1 = getattr(
                 signal,
@@ -1911,10 +1923,7 @@ class TradingBot:
                 "",
             )
 
-            if (
-                tp1 != ""
-                and tp2 != ""
-            ):
+            if tp1 != "" and tp2 != "":
                 exit_value = (
                     f"{tp1} / {tp2}"
                 )
@@ -1925,6 +1934,7 @@ class TradingBot:
 
             previews.append({
                 "time": display_time,
+                "rank": "",
                 "strategy": "Quick Flip",
                 "symbol": symbol_upper,
                 "entry": getattr(
@@ -1934,6 +1944,8 @@ class TradingBot:
                 ),
                 "exit": exit_value,
                 "quantity": "",
+                "allocation_weight": 0.0,
+                "recommended_allocation": 0.0,
                 "status": display_status,
             })
 
@@ -1951,23 +1963,21 @@ class TradingBot:
             data_feed: str = MARKET_DATA_FEED,
     ) -> None:
         """
-        Archive genuine reconciled one-minute bars in the
-        separate trading workbook.
+        Google Sheets minute-bar export is intentionally disabled.
 
-        Missing minutes are never fabricated.
+        One-minute data remains available to live strategy logic,
+        reconciliation, and market-data research. It is simply no
+        longer copied into the trading workbook.
         """
-        self.initialise_trading_sheets()
+        del (
+            date_str,
+            bars_by_symbol,
+            source,
+            data_feed,
+        )
 
-        if self.trading_sheets is None:
-            raise RuntimeError(
-                "New trading workbook was not initialised."
-            )
-
-        self.trading_sheets.write_minute_bars_history(
-            date_str=date_str,
-            bars_by_symbol=bars_by_symbol,
-            data_feed=data_feed,
-            source=source,
+        print(
+            "Minute Bars History Google Sheets export disabled."
         )
 
     @staticmethod

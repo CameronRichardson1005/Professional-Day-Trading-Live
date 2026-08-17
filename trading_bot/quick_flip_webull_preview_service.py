@@ -318,6 +318,8 @@ class QuickFlipWebullPreviewService:
         live_policy_plan = None
         live_policy_allocations = {}
         live_policy_weights = {}
+        live_policy_ranks = {}
+        live_policy_scores = {}
 
         self.committed_policy_funded = False
         self.committed_policy_decision_reason = None
@@ -350,6 +352,29 @@ class QuickFlipWebullPreviewService:
                 live_policy_weights[
                     item.symbol
                 ] = item.allocation_weight
+
+            ranked_policy_items = sorted(
+                live_policy_plan.allocations,
+                key=lambda item: (
+                    -item.score,
+                    item.symbol,
+                ),
+            )
+
+            live_policy_ranks = {
+                item.symbol: index
+                for index, item
+                in enumerate(
+                    ranked_policy_items,
+                    start=1,
+                )
+            }
+
+            live_policy_scores = {
+                item.symbol: item.score
+                for item
+                in live_policy_plan.allocations
+            }
 
             self.committed_policy_funded = any(
                 item.allocation_weight > 0
@@ -546,6 +571,22 @@ class QuickFlipWebullPreviewService:
                             recommended_allocation,
                             2,
                         )
+                    ),
+                    "allocationRank": (
+                        live_policy_ranks.get(
+                            symbol
+                        )
+                        if live_policy_plan
+                        is not None
+                        else None
+                    ),
+                    "allocationScore": (
+                        live_policy_scores.get(
+                            symbol
+                        )
+                        if live_policy_plan
+                        is not None
+                        else None
                     ),
                     "capitalAllocationMethod": (
                         allocation_plan.method
