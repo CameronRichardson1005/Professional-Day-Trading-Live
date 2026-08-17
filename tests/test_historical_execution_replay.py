@@ -694,3 +694,182 @@ def test_unsupported_strategy_rejected():
             minute_bars=[],
             strategy="OTHER",
         )
+
+
+
+def test_manipulation_ignores_target_before_entry_fill():
+    row = base_row()
+
+    row.update({
+        "manipulation_signal": "INVEST",
+        "manipulation_entry": 10.0,
+        "manipulation_target": 11.0,
+        "manipulation_trading_stop": 9.0,
+        "manipulation_filled": "YES",
+        "manipulation_outcome": "TARGET",
+    })
+
+    bars = [
+        minute(
+            14,
+            45,
+            open_price=11.0,
+            high=11.2,
+            low=10.5,
+            close=10.8,
+        ),
+        minute(
+            14,
+            46,
+            open_price=10.2,
+            high=10.3,
+            low=9.9,
+            close=10.0,
+        ),
+        minute(
+            14,
+            47,
+            open_price=9.5,
+            high=9.7,
+            low=8.9,
+            close=9.0,
+        ),
+    ]
+
+    simulator = HistoricalExecutionSimulator(
+        starting_cash=1000
+    )
+
+    result = replay_master_row_strategy(
+        simulator=simulator,
+        row=row,
+        minute_bars=bars,
+        strategy="MANIPULATION",
+    )
+
+    assert result.entry_filled is True
+
+    assert (
+        result.exit_reason
+        == "TRADING_STOP"
+    )
+
+    assert result.exit_price == 9.0
+
+    assert result.realized_pnl == -1.0
+
+    assert (
+        simulator.held_quantity(
+            "SOUN"
+        )
+        == 0
+    )
+
+
+def test_manipulation_same_minute_stop_beats_target():
+    row = base_row()
+
+    row.update({
+        "manipulation_signal": "INVEST",
+        "manipulation_entry": 10.0,
+        "manipulation_target": 11.0,
+        "manipulation_trading_stop": 9.0,
+        "manipulation_filled": "YES",
+        "manipulation_outcome": "TARGET",
+    })
+
+    bars = [
+        minute(
+            14,
+            45,
+            open_price=10.0,
+            high=11.2,
+            low=8.8,
+            close=10.0,
+        ),
+    ]
+
+    simulator = HistoricalExecutionSimulator(
+        starting_cash=1000
+    )
+
+    result = replay_master_row_strategy(
+        simulator=simulator,
+        row=row,
+        minute_bars=bars,
+        strategy="MANIPULATION",
+    )
+
+    assert (
+        result.exit_reason
+        == "TRADING_STOP"
+    )
+
+    assert result.exit_price == 9.0
+    assert result.realized_pnl == -1.0
+
+
+def test_manipulation_open_trade_audit_flattens_at_endpoint():
+    row = base_row()
+
+    row.update({
+        "manipulation_signal": "INVEST",
+        "manipulation_entry": 10.0,
+        "manipulation_target": 11.0,
+        "manipulation_trading_stop": 9.0,
+        "manipulation_filled": "YES",
+        "manipulation_outcome": "TARGET",
+    })
+
+    bars = [
+        minute(
+            14,
+            45,
+            open_price=11.0,
+            high=11.2,
+            low=10.5,
+            close=10.8,
+        ),
+        minute(
+            14,
+            46,
+            open_price=10.2,
+            high=10.3,
+            low=9.9,
+            close=10.0,
+        ),
+        minute(
+            20,
+            59,
+            open_price=10.3,
+            high=10.5,
+            low=10.2,
+            close=10.4,
+        ),
+    ]
+
+    simulator = HistoricalExecutionSimulator(
+        starting_cash=1000
+    )
+
+    result = replay_master_row_strategy(
+        simulator=simulator,
+        row=row,
+        minute_bars=bars,
+        strategy="MANIPULATION",
+    )
+
+    assert (
+        result.exit_reason
+        == "SESSION_ENDPOINT"
+    )
+
+    assert result.exit_price == 10.4
+    assert result.realized_pnl == 0.4
+
+    assert (
+        simulator.held_quantity(
+            "SOUN"
+        )
+        == 0
+    )

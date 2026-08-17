@@ -325,8 +325,10 @@ def replay_master_row_strategy(
 
     Manipulation:
       - entry begins at 09:45 ET;
-      - existing historical TARGET/STOP outcome chooses the
-        corresponding historical exit trigger.
+      - entry is established from chronological minute bars;
+      - target/stop evaluation begins only after that fill;
+      - pre-fill target/stop touches cannot become exits;
+      - same-minute stop/target ambiguity resolves to STOP.
 
     Quick Flip:
       - entry begins at the existing confirmation timestamp;
@@ -667,39 +669,70 @@ def replay_master_row_strategy(
     exit_bar = None
 
     if key == "MANIPULATION":
-        if "TARGET" in historical_outcome:
-            exit_reason = "TARGET"
-            exit_price = float(
-                target
+        stop_price = float(
+            stop
+        )
+
+        target_price = float(
+            target
+        )
+
+        # Determine the Manipulation exit from the actual
+        # chronological 1-minute sequence AFTER the entry
+        # has filled.
+        #
+        # The historical master may have been produced from
+        # coarser candles where a target traded before the
+        # eventual entry fill. Such pre-fill target touches
+        # are not valid exits.
+        #
+        # If both stop and target are touched inside one
+        # 1-minute candle, STOP wins conservatively because
+        # OHLC cannot reveal the intraminute sequence.
+        for bar in post_fill:
+            stop_hit = (
+                bar.low
+                <= stop_price
             )
 
-            for bar in post_fill:
-                if bar.high >= exit_price:
-                    exit_bar = bar
-                    break
-
-        elif (
-            "STOP" in historical_outcome
-        ):
-            exit_reason = "TRADING_STOP"
-            stop_price = float(
-                stop
+            target_hit = (
+                bar.high
+                >= target_price
             )
 
-            for bar in post_fill:
-                if bar.low <= stop_price:
-                    exit_bar = bar
+            if stop_hit:
+                exit_reason = (
+                    "TRADING_STOP"
+                )
 
-                    exit_price = min(
-                        stop_price,
-                        float(
-                            bar.open
-                        ),
-                    )
+                exit_bar = bar
 
-                    break
+                exit_price = min(
+                    stop_price,
+                    float(
+                        bar.open
+                    ),
+                )
 
-        else:
+                break
+
+            if target_hit:
+                exit_reason = "TARGET"
+
+                exit_bar = bar
+
+                exit_price = (
+                    target_price
+                )
+
+                break
+
+        if exit_bar is None:
+            # Execution-audit flatten only. This ensures each
+            # independent day-trade replay finishes flat.
+            #
+            # It is not a new Manipulation strategy target or
+            # stop rule.
             exit_reason = (
                 "SESSION_ENDPOINT"
             )
