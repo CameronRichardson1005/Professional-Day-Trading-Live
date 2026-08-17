@@ -54,6 +54,10 @@ class WebullExecutionRecord:
     replaced_from: str | None = None
     replacement_order_id: str | None = None
 
+    replace_requested_quantity: int | None = None
+    replace_requested_limit_price: float | None = None
+    replace_requested_at: datetime | None = None
+
     cancel_requested: bool = False
 
     last_error: str | None = None
@@ -282,6 +286,91 @@ class WebullExecutionLedger:
                     "MANUAL_OVERRIDE_TIME_REQUIRED"
                 )
 
+        replace_fields_present = (
+            record.replace_requested_quantity is not None,
+            record.replace_requested_limit_price is not None,
+            record.replace_requested_at is not None,
+        )
+
+        if (
+            any(replace_fields_present)
+            and not all(replace_fields_present)
+        ):
+            raise WebullExecutionLedgerError(
+                "INCOMPLETE_REPLACE_REQUEST"
+            )
+
+        replace_requested_quantity = None
+        replace_requested_limit_price = None
+        replace_requested_at = None
+
+        if all(replace_fields_present):
+            if isinstance(
+                record.replace_requested_quantity,
+                bool,
+            ):
+                raise WebullExecutionLedgerError(
+                    "INVALID_REPLACE_QUANTITY"
+                )
+
+            try:
+                replace_requested_quantity = int(
+                    record.replace_requested_quantity
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                raise WebullExecutionLedgerError(
+                    "INVALID_REPLACE_QUANTITY"
+                ) from error
+
+            if replace_requested_quantity <= 0:
+                raise WebullExecutionLedgerError(
+                    "INVALID_REPLACE_QUANTITY"
+                )
+
+            try:
+                replace_requested_limit_price = round(
+                    float(
+                        record.replace_requested_limit_price
+                    ),
+                    4,
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                raise WebullExecutionLedgerError(
+                    "INVALID_REPLACE_LIMIT_PRICE"
+                ) from error
+
+            if replace_requested_limit_price <= 0:
+                raise WebullExecutionLedgerError(
+                    "INVALID_REPLACE_LIMIT_PRICE"
+                )
+
+            replace_requested_at = (
+                record.replace_requested_at
+            )
+
+            if not isinstance(
+                replace_requested_at,
+                datetime,
+            ):
+                raise WebullExecutionLedgerError(
+                    "REPLACE_REQUEST_TIME_INVALID"
+                )
+
+            if replace_requested_at.tzinfo is None:
+                raise WebullExecutionLedgerError(
+                    "REPLACE_REQUEST_TIME_MUST_HAVE_TIMEZONE"
+                )
+
+            replace_requested_at = (
+                replace_requested_at.astimezone(UTC)
+            )
+
         return replace(
             record,
             client_order_id=client_order_id,
@@ -310,6 +399,15 @@ class WebullExecutionLedger:
             average_fill_price=(
                 average_fill_price
             ),
+            replace_requested_quantity=(
+                replace_requested_quantity
+            ),
+            replace_requested_limit_price=(
+                replace_requested_limit_price
+            ),
+            replace_requested_at=(
+                replace_requested_at
+            ),
             manual_override_reason=(
                 None
                 if record.manual_override_reason
@@ -336,6 +434,7 @@ class WebullExecutionLedger:
             "updated_at",
             "last_reconciled_at",
             "manual_override_at",
+            "replace_requested_at",
         ):
             payload[field_name] = (
                 cls._format_datetime(
@@ -473,6 +572,39 @@ class WebullExecutionLedger:
                 replacement_order_id=(
                     payload.get(
                         "replacement_order_id"
+                    )
+                ),
+                replace_requested_quantity=(
+                    None
+                    if payload.get(
+                        "replace_requested_quantity"
+                    ) is None
+                    else int(
+                        payload[
+                            "replace_requested_quantity"
+                        ]
+                    )
+                ),
+                replace_requested_limit_price=(
+                    None
+                    if payload.get(
+                        "replace_requested_limit_price"
+                    ) is None
+                    else float(
+                        payload[
+                            "replace_requested_limit_price"
+                        ]
+                    )
+                ),
+                replace_requested_at=(
+                    cls._parse_datetime(
+                        payload.get(
+                            "replace_requested_at"
+                        ),
+                        required=False,
+                        field_name=(
+                            "replace_requested_at"
+                        ),
                     )
                 ),
                 cancel_requested=bool(
@@ -761,6 +893,70 @@ class WebullExecutionLedger:
             manual_override=False,
             manual_override_reason=None,
             manual_override_at=None,
+        )
+
+    def mark_replace_requested(
+        self,
+        *,
+        client_order_id: str,
+        quantity: int,
+        limit_price: float,
+    ) -> WebullExecutionRecord:
+        if (
+            isinstance(quantity, bool)
+            or not isinstance(quantity, int)
+            or quantity <= 0
+        ):
+            raise WebullExecutionLedgerError(
+                "INVALID_REPLACE_QUANTITY"
+            )
+
+        try:
+            price = round(
+                float(limit_price),
+                4,
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+            raise WebullExecutionLedgerError(
+                "INVALID_REPLACE_LIMIT_PRICE"
+            ) from error
+
+        if price <= 0:
+            raise WebullExecutionLedgerError(
+                "INVALID_REPLACE_LIMIT_PRICE"
+            )
+
+        now = self.clock()
+
+        if now.tzinfo is None:
+            raise WebullExecutionLedgerError(
+                "LEDGER_CLOCK_MUST_BE_TIMEZONE_AWARE"
+            )
+
+        return self._replace_record(
+            client_order_id,
+            status="REPLACE_PENDING",
+            replace_requested_quantity=quantity,
+            replace_requested_limit_price=price,
+            replace_requested_at=(
+                now.astimezone(UTC)
+            ),
+            last_error=None,
+        )
+
+    def clear_replace_request(
+        self,
+        *,
+        client_order_id: str,
+    ) -> WebullExecutionRecord:
+        return self._replace_record(
+            client_order_id,
+            replace_requested_quantity=None,
+            replace_requested_limit_price=None,
+            replace_requested_at=None,
         )
 
     def mark_cancel_requested(

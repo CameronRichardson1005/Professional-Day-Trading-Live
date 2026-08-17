@@ -603,3 +603,128 @@ def test_cancel_request_remains_pending_until_broker_confirms(
     assert result.cancel_requested is True
     assert result.manual_override is True
     assert result.broker_status == "SUBMITTED"
+
+
+
+def test_replace_waiting_for_broker_stays_pending(
+    tmp_path,
+):
+    (
+        manager,
+        broker,
+        ledger,
+        trade_client,
+    ) = make_manager(tmp_path)
+
+    manager.submit(
+        intent=make_intent(),
+        account=make_account(),
+    )
+
+    def delayed_replace(
+        account_id,
+        modify_orders,
+    ):
+        trade_client.order_v3.replace_calls.append(
+            (
+                account_id,
+                modify_orders,
+            )
+        )
+
+        # Broker acknowledges the request, but Order Detail
+        # intentionally remains on the old quantity/price.
+        return FakeResponse()
+
+    trade_client.order_v3.replace_order = (
+        delayed_replace
+    )
+
+    result = manager.replace_manual(
+        client_order_id="order-1",
+        quantity=12,
+        limit_price=6.20,
+        reason="USER_CHANGED_ORDER",
+    )
+
+    assert result.status == "REPLACE_PENDING"
+
+    stored = ledger.load()["order-1"]
+
+    assert (
+        stored.replace_requested_quantity
+        == 12
+    )
+
+    assert (
+        stored.replace_requested_limit_price
+        == 6.20
+    )
+
+
+def test_replace_transport_uncertainty_preserves_request(
+    tmp_path,
+):
+    (
+        manager,
+        broker,
+        ledger,
+        trade_client,
+    ) = make_manager(tmp_path)
+
+    manager.submit(
+        intent=make_intent(),
+        account=make_account(),
+    )
+
+    def broken_replace(
+        account_id,
+        modify_orders,
+    ):
+        trade_client.order_v3.replace_calls.append(
+            (
+                account_id,
+                modify_orders,
+            )
+        )
+
+        raise TimeoutError(
+            "simulated replace timeout"
+        )
+
+    trade_client.order_v3.replace_order = (
+        broken_replace
+    )
+
+    with pytest.raises(
+        WebullExecutionManagerError,
+        match="REPLACEMENT_FAILED",
+    ):
+        manager.replace_manual(
+            client_order_id="order-1",
+            quantity=12,
+            limit_price=6.20,
+            reason="USER_CHANGED_ORDER",
+        )
+
+    stored = ledger.load()["order-1"]
+
+    assert (
+        stored.status
+        == "BROKER_STATE_UNKNOWN"
+    )
+
+    assert (
+        stored.replace_requested_quantity
+        == 12
+    )
+
+    assert (
+        stored.replace_requested_limit_price
+        == 6.20
+    )
+
+    # Critical: ambiguous replacement is not retried.
+    assert len(
+        trade_client.order_v3.replace_calls
+    ) == 1

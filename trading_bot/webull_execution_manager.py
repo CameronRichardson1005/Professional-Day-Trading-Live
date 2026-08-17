@@ -252,9 +252,10 @@ class WebullSandboxExecutionManager:
             reason=reason,
         )
 
-        self.ledger.mark_operation_state(
+        self.ledger.mark_replace_requested(
             client_order_id=client_order_id,
-            status="REPLACE_PENDING",
+            quantity=quantity,
+            limit_price=limit_price,
         )
 
         try:
@@ -283,8 +284,46 @@ class WebullSandboxExecutionManager:
                 f"REPLACEMENT_FAILED:{error}"
             ) from error
 
-        return self.reconcile(
+        result = self.reconcile(
             client_order_id=client_order_id
+        )
+
+        if result.status in {
+            "FILLED",
+            "CANCELLED",
+            "REJECTED",
+        }:
+            return self.ledger.clear_replace_request(
+                client_order_id=client_order_id
+            )
+
+        quantity_matches = (
+            result.quantity == quantity
+        )
+
+        price_matches = (
+            abs(
+                float(result.limit_price)
+                - float(limit_price)
+            )
+            <= 0.000001
+        )
+
+        if (
+            quantity_matches
+            and price_matches
+        ):
+            return self.ledger.clear_replace_request(
+                client_order_id=client_order_id
+            )
+
+        # Webull accepted the replace request but Order Detail
+        # has not reflected the requested quantity/price yet.
+        # Preserve the desired state durably and fail closed.
+        return self.ledger.mark_operation_state(
+            client_order_id=client_order_id,
+            status="REPLACE_PENDING",
+            last_error=None,
         )
 
     def cancel_manual(
