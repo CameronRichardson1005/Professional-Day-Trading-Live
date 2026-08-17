@@ -249,8 +249,9 @@ def test_eod_shadow_requires_webull_scanner(
         )
 
 
-def test_shadow_failure_cannot_fail_eod_production(
-    monkeypatch,
+
+def test_eod_production_does_not_run_forward_shadow(
+        monkeypatch,
 ):
     bot = TradingBot.__new__(
         TradingBot
@@ -269,7 +270,7 @@ def test_shadow_failure_cannot_fail_eod_production(
         )
     )
 
-    def fail_shadow(
+    def fail_if_shadow_runs(
         *,
         date_str,
     ):
@@ -280,12 +281,13 @@ def test_shadow_failure_cannot_fail_eod_production(
             )
         )
 
-        raise RuntimeError(
-            "simulated research failure"
+        raise AssertionError(
+            "Production EOD must not run "
+            "1-minute forward shadow research."
         )
 
     bot._record_v1_top2_forward_validation = (
-        fail_shadow
+        fail_if_shadow_runs
     )
 
     monkeypatch.setattr(
@@ -299,19 +301,16 @@ def test_shadow_failure_cannot_fail_eod_production(
         eastern=EASTERN,
     )
 
-    assert (
-        "PNL",
-        "2026-08-14",
-    ) in calls
-
-    assert (
-        "SHADOW",
-        "2026-08-14",
-    ) in calls
+    assert calls == [
+        (
+            "PNL",
+            "2026-08-14",
+        ),
+    ]
 
 
-def test_pnl_failure_still_attempts_shadow(
-    monkeypatch,
+def test_pnl_failure_does_not_run_forward_shadow(
+        monkeypatch,
 ):
     bot = TradingBot.__new__(
         TradingBot
@@ -334,7 +333,7 @@ def test_pnl_failure_still_attempts_shadow(
             "simulated P&L failure"
         )
 
-    def record_shadow(
+    def fail_if_shadow_runs(
         *,
         date_str,
     ):
@@ -345,12 +344,17 @@ def test_pnl_failure_still_attempts_shadow(
             )
         )
 
+        raise AssertionError(
+            "Production EOD must not run "
+            "1-minute forward shadow research."
+        )
+
     bot.write_webull_daily_pnl = (
         fail_pnl
     )
 
     bot._record_v1_top2_forward_validation = (
-        record_shadow
+        fail_if_shadow_runs
     )
 
     monkeypatch.setattr(
@@ -367,10 +371,6 @@ def test_pnl_failure_still_attempts_shadow(
     assert calls == [
         (
             "PNL",
-            "2026-08-14",
-        ),
-        (
-            "SHADOW",
             "2026-08-14",
         ),
     ]

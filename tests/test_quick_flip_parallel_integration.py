@@ -16,15 +16,15 @@ class FakeWebullStrategyMarketData:
         self,
         opening_bars,
         atrs,
-        minute_bars,
+        five_minute_bars,
     ):
         self.opening_bars = opening_bars
         self.atrs = atrs
-        self.minute_bars = minute_bars
+        self.five_minute_bars = five_minute_bars
 
         self.opening_calls = []
         self.atr_calls = []
-        self.minute_calls = []
+        self.five_minute_calls = []
 
     def get_opening_15min_bars(
         self,
@@ -44,21 +44,21 @@ class FakeWebullStrategyMarketData:
         )
         return self.atrs
 
-    def get_historical_1min_bars(
+    def get_historical_5min_bars(
         self,
         **kwargs,
     ):
-        self.minute_calls.append(
+        self.five_minute_calls.append(
             kwargs
         )
-        return self.minute_bars
+        return self.five_minute_bars
 
 
 class FakeAlpaca:
     pass
 
 
-def five_minute_group(
+def five_minute_bar(
     start_minute,
     *,
     open_price,
@@ -67,64 +67,27 @@ def five_minute_group(
     close,
 ):
     """
-    Build five one-minute bars whose aggregate exactly
-    matches the desired 5-minute candle.
+    Build one native Webull 5-minute OHLC bar.
+
+    Webull timestamps the candle at the beginning of
+    its five-minute interval.
     """
-    bars = []
-
-    for offset in range(5):
-        minute = (
-            start_minute + offset
-        )
-
-        if offset == 0:
-            minute_open = open_price
-        else:
-            minute_open = (
-                open_price + close
-            ) / 2
-
-        if offset == 4:
-            minute_close = close
-        else:
-            minute_close = (
-                open_price + close
-            ) / 2
-
-        bars.append(
-            {
-                "t": (
-                    "2026-08-11T13:"
-                    f"{minute:02d}:00Z"
-                ),
-                "o": minute_open,
-                "h": (
-                    high
-                    if offset == 2
-                    else max(
-                        minute_open,
-                        minute_close,
-                    )
-                ),
-                "l": (
-                    low
-                    if offset == 2
-                    else min(
-                        minute_open,
-                        minute_close,
-                    )
-                ),
-                "c": minute_close,
-                "v": 100,
-            }
-        )
-
-    return bars
+    return {
+        "t": (
+            "2026-08-11T13:"
+            f"{start_minute:02d}:00Z"
+        ),
+        "o": open_price,
+        "h": high,
+        "l": low,
+        "c": close,
+        "v": 500,
+    }
 
 
 def build_bot(
     *,
-    minute_bars,
+    five_minute_bars,
     atr=1.00,
 ):
     bot = TradingBot.__new__(
@@ -167,8 +130,8 @@ def build_bot(
             atrs={
                 "TEST": atr,
             },
-            minute_bars={
-                "TEST": minute_bars,
+            five_minute_bars={
+                "TEST": five_minute_bars,
             },
         )
     )
@@ -179,40 +142,32 @@ def build_bot(
 
 
 def test_parallel_strategies_keep_results_separate():
-    minute_bars = []
-
-    minute_bars.extend(
-        five_minute_group(
+    five_minute_bars = [
+        five_minute_bar(
             45,
             open_price=9.95,
             high=10.00,
             low=9.50,
             close=9.60,
-        )
-    )
-
-    minute_bars.extend(
-        five_minute_group(
+        ),
+        five_minute_bar(
             50,
             open_price=9.55,
             high=9.60,
             low=8.90,
             close=9.58,
-        )
-    )
-
-    minute_bars.extend(
-        five_minute_group(
+        ),
+        five_minute_bar(
             55,
             open_price=9.58,
             high=9.75,
             low=9.50,
             close=9.70,
-        )
-    )
+        ),
+    ]
 
     bot = build_bot(
-        minute_bars=minute_bars
+        five_minute_bars=five_minute_bars
     )
 
     eastern = ZoneInfo(
@@ -300,7 +255,7 @@ def test_parallel_strategies_keep_results_separate():
 
 def test_shared_opening_gate_keeps_strategies_independent():
     bot = build_bot(
-        minute_bars=[],
+        five_minute_bars=[],
         atr=2.00,
     )
 
@@ -358,7 +313,7 @@ def test_shared_opening_gate_keeps_strategies_independent():
 
 def test_missing_quick_flip_atr_is_recorded_safely():
     bot = build_bot(
-        minute_bars=[]
+        five_minute_bars=[]
     )
 
     bot.webull_strategy_market_data.atrs = {
@@ -387,7 +342,7 @@ def test_missing_quick_flip_atr_is_recorded_safely():
 
 def test_quick_flip_uses_0945_to_1100_window():
     bot = build_bot(
-        minute_bars=[]
+        five_minute_bars=[]
     )
 
     bot._calculate_quick_flip_strategy(
@@ -396,11 +351,11 @@ def test_quick_flip_uses_0945_to_1100_window():
     )
 
     assert len(
-        bot.webull_strategy_market_data.minute_calls
+        bot.webull_strategy_market_data.five_minute_calls
     ) == 1
 
     call = (
-        bot.webull_strategy_market_data.minute_calls[0]
+        bot.webull_strategy_market_data.five_minute_calls[0]
     )
 
     assert (
@@ -416,7 +371,7 @@ def test_quick_flip_uses_0945_to_1100_window():
 
 def test_quick_flip_never_changes_stock_stop_fields():
     bot = build_bot(
-        minute_bars=[]
+        five_minute_bars=[]
     )
 
     stock = bot.stocks["TEST"]

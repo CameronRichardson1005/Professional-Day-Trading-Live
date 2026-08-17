@@ -1955,30 +1955,6 @@ class TradingBot:
             sheet_name="Trade Previews",
         )
 
-    def write_new_minute_bars_history(
-            self,
-            date_str: str,
-            bars_by_symbol: dict,
-            source: str,
-            data_feed: str = MARKET_DATA_FEED,
-    ) -> None:
-        """
-        Google Sheets minute-bar export is intentionally disabled.
-
-        One-minute data remains available to live strategy logic,
-        reconciliation, and market-data research. It is simply no
-        longer copied into the trading workbook.
-        """
-        del (
-            date_str,
-            bars_by_symbol,
-            source,
-            data_feed,
-        )
-
-        print(
-            "Minute Bars History Google Sheets export disabled."
-        )
 
     @staticmethod
     def _notify_webull_daily_pnl(
@@ -3720,54 +3696,6 @@ class TradingBot:
                     f"New workbook error: {error}"
                 )
 
-            try:
-                combined_bars_by_symbol = {}
-
-                for symbol, stock in getattr(
-                    self,
-                    "stocks",
-                    {},
-                ).items():
-                    combined_bars_by_symbol[
-                        symbol
-                    ] = reconcile_minute_bars(
-                        list(
-                            getattr(
-                                stock,
-                                "minute_bars",
-                                [],
-                            )
-                        ),
-                        intraday_bars.get(
-                            symbol,
-                            [],
-                        ),
-                    )
-
-                if combined_bars_by_symbol:
-                    self.write_new_minute_bars_history(
-                        date_str=date_str,
-                        bars_by_symbol=(
-                            combined_bars_by_symbol
-                        ),
-                        source="LIVE_RECONCILED_FULL",
-                        data_feed=data_feed,
-                    )
-
-                    print(
-                        "Final reconciled minute history "
-                        "written to new trading workbook."
-                    )
-
-            except Exception as error:
-                print(
-                    "WARNING: Final new trading workbook "
-                    "minute history write failed."
-                )
-                print(
-                    f"Minute history error: {error}"
-                )
-
         quick_flip_invest = [
             symbol
             for symbol, result
@@ -4593,7 +4521,7 @@ class TradingBot:
 
             bars_by_symbol = (
                 market_data
-                .get_historical_1min_bars(
+                .get_historical_5min_bars(
                     symbols_csv=self.symbols_csv,
                     start_iso=start_utc.strftime(
                         "%Y-%m-%dT%H:%M:%SZ"
@@ -4657,22 +4585,44 @@ class TradingBot:
                     )
                 )
 
+                evaluation_end_utc = (
+                    normalized_end.astimezone(
+                        utc
+                    )
+                )
+
+                native_candles = []
+
+                for bar in bars_by_symbol.get(
+                    symbol,
+                    [],
+                ):
+                    candle = (
+                        self._quick_flip_candle_from_bar(
+                            bar
+                        )
+                    )
+
+                    # Webull timestamps native 5Min bars
+                    # at the start of each interval.
+                    # Match live production exactly by
+                    # evaluating only completed candles.
+                    if (
+                        candle.timestamp
+                        + timedelta(minutes=5)
+                        <= evaluation_end_utc
+                    ):
+                        native_candles.append(
+                            candle
+                        )
+
                 result = (
                     self.quick_flip_monitor
-                    .evaluate_minute_bars(
+                    .evaluate_five_minute_candles(
                         symbol=symbol,
                         opening_bar=opening_candle,
                         atr_14=float(atr_14),
-                        minute_bars=(
-                            bars_by_symbol.get(
-                                symbol,
-                                [],
-                            )
-                        ),
-                        evaluation_end=(
-                            normalized_end
-                            .astimezone(utc)
-                        ),
+                        candles=native_candles,
                         cutoff_reached=(
                             cutoff_reached
                         ),
@@ -5766,43 +5716,6 @@ class TradingBot:
             sheet_name="Quick Flip Previews",
         )
 
-        # Archive the actual historical minute data used for the
-        # completed morning session. No missing bars are fabricated.
-        session_start = datetime.combine(
-            trading_date,
-            time(hour=9, minute=30),
-            tzinfo=eastern,
-        ).astimezone(utc)
-
-        session_end = datetime.combine(
-            trading_date,
-            time(hour=11, minute=0),
-            tzinfo=eastern,
-        ).astimezone(utc)
-
-        market_data = (
-            self._get_webull_strategy_market_data()
-        )
-
-        bars_by_symbol = (
-            market_data.get_historical_1min_bars(
-                symbols_csv=self.symbols_csv,
-                start_iso=session_start.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ"
-                ),
-                end_iso=session_end.strftime(
-                    "%Y-%m-%dT%H:%M:%SZ"
-                ),
-            )
-        )
-
-        self.write_new_minute_bars_history(
-            date_str=date_str,
-            bars_by_symbol=bars_by_symbol,
-            source="HISTORICAL_BACKFILL",
-            data_feed=MARKET_DATA_FEED,
-        )
-
         print(
             "Historical Google Sheets backfill "
             "completed successfully."
@@ -6227,20 +6140,6 @@ class TradingBot:
                 f"End-of-day P&L error: {error}"
             )
             return
-        finally:
-            try:
-                self._record_v1_top2_forward_validation(
-                    date_str=date_str,
-                )
-            except Exception as error:
-                print(
-                    "WARNING: V1 Top-2 forward "
-                    "shadow research failed."
-                )
-                print(
-                    "Forward-validation error: "
-                    f"{error}"
-                )
 
         print(
             "End-of-day Google Sheets P&L "
