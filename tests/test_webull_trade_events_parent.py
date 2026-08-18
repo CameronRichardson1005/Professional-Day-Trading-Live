@@ -370,3 +370,38 @@ def test_worker_health_failure_revokes_trust(
         controller.health.fatal_reason
         == "TRADE_EVENTS_WORKER_NOT_HEALTHY"
     )
+
+
+def test_fatal_control_reason_wins_over_dead_worker(
+    tmp_path,
+):
+    def dead_worker_check():
+        raise RuntimeError(
+            "worker already exited"
+        )
+
+    (
+        controller,
+        _,
+        control,
+        _,
+        _,
+    ) = make_controller(
+        tmp_path,
+        health_check=dead_worker_check,
+    )
+
+    control.put_nowait({
+        "type": "FATAL",
+        "reason": "TRADE_EVENTS_STREAM_FAILED",
+    })
+
+    result = controller.poll_once()
+
+    assert result.trusted is False
+    assert result.control_messages == 1
+
+    assert (
+        controller.health.fatal_reason
+        == "TRADE_EVENTS_STREAM_FAILED"
+    )

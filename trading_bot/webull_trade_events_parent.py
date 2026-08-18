@@ -293,11 +293,19 @@ class WebullTradeEventsParentController:
         trust transitions are applied before queued order events.
         """
 
-        self._check_worker()
-
+        # Drain worker control messages before checking process
+        # liveness. A worker may publish a sanitized FATAL reason
+        # immediately before exiting; that reason must not be
+        # overwritten by a generic worker-not-running failure.
         control_messages = (
             self._drain_controls()
         )
+
+        # A FATAL control message already establishes a
+        # fail-closed state. Preserve its specific reason and
+        # allow the lifecycle layer to report it.
+        if self.health.fatal_reason is None:
+            self._check_worker()
 
         (
             journaled_events,
