@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
 from .config import (
     WEBULL_EXECUTION_LEDGER_FILE,
     WEBULL_EXECUTION_MODE,
+    WEBULL_TRADE_EVENTS_JOURNAL_FILE,
     WEBULL_SANDBOX_ACCOUNT_ID,
     WEBULL_SANDBOX_APP_KEY,
     WEBULL_SANDBOX_APP_SECRET,
@@ -39,6 +45,22 @@ from .webull_sandbox_preflight import (
     WebullSandboxPreflight,
     WebullSandboxPreflightError,
     list_sandbox_accounts,
+)
+
+
+from .webull_trade_events_journal import (
+    WebullTradeEventsHealthState,
+    WebullTradeEventsJournal,
+)
+from .webull_trade_events_parent import (
+    WebullTradeEventsParentController,
+)
+from .webull_trade_events_process import (
+    WebullTradeEventsProcessSupervisor,
+)
+from .webull_trade_events_worker import (
+    WEBULL_SANDBOX_EVENTS_HOST,
+    run_webull_trade_events_worker,
 )
 
 
@@ -283,4 +305,199 @@ def build_webull_sandbox_manual_close_service(
         management_armed=(
             WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
         ),
+    )
+
+
+
+WEBULL_TRADE_EVENTS_EVENT_QUEUE_MAXSIZE = 256
+WEBULL_TRADE_EVENTS_CONTROL_QUEUE_MAXSIZE = 32
+
+
+class WebullSandboxTradeEventsRuntimeError(
+    RuntimeError
+):
+    pass
+
+
+@dataclass(frozen=True)
+class WebullSandboxTradeEventsRuntime:
+    """
+    Offline-constructible parent/worker Trade Events runtime.
+
+    Merely constructing this object cannot open a Webull
+    connection. The child supervisor must be started
+    explicitly by a future lifecycle layer.
+    """
+
+    event_queue: Any
+    control_queue: Any
+    journal: WebullTradeEventsJournal
+    health: WebullTradeEventsHealthState
+    supervisor: WebullTradeEventsProcessSupervisor
+    controller: WebullTradeEventsParentController
+
+
+def _run_webull_trade_events_worker_entry(
+    app_key: str,
+    app_secret: str,
+    account_ids: tuple[str, ...],
+    event_queue: Any,
+    control_queue: Any,
+    host: str,
+) -> None:
+    """
+    Positional multiprocessing adapter for the worker's
+    keyword-only public API.
+    """
+
+    run_webull_trade_events_worker(
+        app_key=app_key,
+        app_secret=app_secret,
+        account_ids=account_ids,
+        event_queue=event_queue,
+        control_queue=control_queue,
+        host=host,
+    )
+
+
+def build_webull_sandbox_trade_events_runtime(
+    *,
+    reconcile: Callable[[], Any],
+    event_handler: (
+        Callable[[dict[str, Any]], None]
+        | None
+    ) = None,
+    queue_factory: (
+        Callable[..., Any]
+        | None
+    ) = None,
+    process_factory: (
+        Callable[..., Any]
+        | None
+    ) = None,
+    journal_path: (
+        str | Path | None
+    ) = None,
+) -> WebullSandboxTradeEventsRuntime:
+    """
+    Assemble the Webull sandbox Trade Events runtime without
+    starting it.
+
+    Construction performs no Webull API call and cannot place,
+    replace, cancel, or close an order.
+
+    Activation is intentionally absent from this builder.
+    """
+
+    if WEBULL_EXECUTION_MODE != "SANDBOX":
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_SANDBOX_MODE_REQUIRED"
+        )
+
+    if not WEBULL_SANDBOX_APP_KEY:
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_SANDBOX_APP_KEY_REQUIRED"
+        )
+
+    if not WEBULL_SANDBOX_APP_SECRET:
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_SANDBOX_APP_SECRET_REQUIRED"
+        )
+
+    if not WEBULL_SANDBOX_ACCOUNT_ID:
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_SANDBOX_ACCOUNT_ID_REQUIRED"
+        )
+
+    if not callable(reconcile):
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_RECONCILE_INVALID"
+        )
+
+    if (
+        event_handler is not None
+        and not callable(event_handler)
+    ):
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_HANDLER_INVALID"
+        )
+
+    if queue_factory is None:
+        context = mp.get_context(
+            "spawn"
+        )
+
+        queue_factory = (
+            context.Queue
+        )
+
+        if process_factory is None:
+            process_factory = (
+                context.Process
+            )
+
+    event_queue = queue_factory(
+        maxsize=(
+            WEBULL_TRADE_EVENTS_EVENT_QUEUE_MAXSIZE
+        )
+    )
+
+    control_queue = queue_factory(
+        maxsize=(
+            WEBULL_TRADE_EVENTS_CONTROL_QUEUE_MAXSIZE
+        )
+    )
+
+    journal = WebullTradeEventsJournal(
+        path=(
+            journal_path
+            if journal_path is not None
+            else WEBULL_TRADE_EVENTS_JOURNAL_FILE
+        )
+    )
+
+    health = (
+        WebullTradeEventsHealthState()
+    )
+
+    supervisor = (
+        WebullTradeEventsProcessSupervisor(
+            worker_target=(
+                _run_webull_trade_events_worker_entry
+            ),
+            worker_args=(
+                WEBULL_SANDBOX_APP_KEY,
+                WEBULL_SANDBOX_APP_SECRET,
+                (
+                    WEBULL_SANDBOX_ACCOUNT_ID,
+                ),
+                event_queue,
+                control_queue,
+                WEBULL_SANDBOX_EVENTS_HOST,
+            ),
+            process_factory=process_factory,
+        )
+    )
+
+    controller = (
+        WebullTradeEventsParentController(
+            event_queue=event_queue,
+            control_queue=control_queue,
+            journal=journal,
+            reconcile=reconcile,
+            event_handler=event_handler,
+            ensure_worker_healthy=(
+                supervisor.ensure_healthy
+            ),
+            health=health,
+        )
+    )
+
+    return WebullSandboxTradeEventsRuntime(
+        event_queue=event_queue,
+        control_queue=control_queue,
+        journal=journal,
+        health=health,
+        supervisor=supervisor,
+        controller=controller,
     )

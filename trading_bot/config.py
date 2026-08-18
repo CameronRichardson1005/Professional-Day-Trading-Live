@@ -421,6 +421,22 @@ WEBULL_EXECUTION_LEDGER_FILE = Path(
 )
 
 
+
+# Durable parent-side source-of-record for sanitized Webull
+# sandbox Trade Events. This is intentionally separate from
+# the execution and reduce-only close ledgers.
+WEBULL_TRADE_EVENTS_JOURNAL_FILE = Path(
+    os.getenv(
+        "WEBULL_TRADE_EVENTS_JOURNAL_FILE",
+        str(
+            PROJECT_ROOT
+            / "runtime"
+            / "webull_trade_events.jsonl"
+        ),
+    )
+)
+
+
 # A second explicit arming control for broker-mutating sandbox
 # operations. WEBULL_EXECUTION_MODE=SANDBOX alone is not enough.
 WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED = (
