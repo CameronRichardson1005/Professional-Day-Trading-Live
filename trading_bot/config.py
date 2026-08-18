@@ -292,6 +292,13 @@ WEBULL_EXECUTION_MAX_OPEN_ORDERS = int(
     )
 )
 
+WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS = float(
+    os.getenv(
+        "WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS",
+        "225",
+    )
+)
+
 if WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS <= 0:
     raise RuntimeError(
         "WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS "
@@ -308,6 +315,21 @@ if WEBULL_EXECUTION_MAX_OPEN_ORDERS <= 0:
     raise RuntimeError(
         "WEBULL_EXECUTION_MAX_OPEN_ORDERS "
         "must be positive."
+    )
+
+if WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS <= 0:
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS "
+        "must be positive."
+    )
+
+if (
+    WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS
+    > WEBULL_OPERATIONAL_EXPOSURE_CAP_DOLLARS
+):
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS "
+        "cannot exceed the operational exposure cap."
     )
 
 

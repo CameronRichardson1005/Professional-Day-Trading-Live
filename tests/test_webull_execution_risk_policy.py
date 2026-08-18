@@ -54,3 +54,14 @@ def test_existing_exposure_caps_remain_unchanged():
 def test_policy_does_not_enable_trading():
     assert WEBULL_ORDER_SUBMISSION_ENABLED is False
     assert WEBULL_TRADING_KILL_SWITCH is True
+
+
+def test_configured_execution_position_cap_is_225():
+    from trading_bot.config import (
+        WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS,
+    )
+
+    assert (
+        WEBULL_EXECUTION_MAX_POSITION_EXPOSURE_DOLLARS
+        == 225.0
+    )

@@ -109,6 +109,7 @@ def limits():
         max_daily_loss=50.0,
         max_open_positions=2,
         max_open_orders=2,
+        max_position_exposure=225.0,
     )
 
 
@@ -118,9 +119,31 @@ def risk_state(
     positions=(),
     orders=(),
     pending_buys=(),
+    position_exposures=None,
+    pending_buy_exposures=None,
     kill=False,
     current=True,
 ):
+    if position_exposures is None:
+        position_exposures = tuple(
+            (
+                symbol,
+                0.0,
+            )
+            for symbol
+            in positions
+        )
+
+    if pending_buy_exposures is None:
+        pending_buy_exposures = tuple(
+            (
+                symbol,
+                0.0,
+            )
+            for symbol
+            in pending_buys
+        )
+
     return WebullExecutionRiskState(
         daily_realized_pnl=pnl,
         open_position_symbols=(
@@ -130,6 +153,12 @@ def risk_state(
         kill_switch_active=kill,
         pending_buy_symbols=(
             pending_buys
+        ),
+        position_exposures=(
+            position_exposures
+        ),
+        pending_buy_exposures=(
+            pending_buy_exposures
         ),
         data_is_current=current,
     )
@@ -311,6 +340,7 @@ def test_existing_exposure_safety_still_runs_after_account_risk(
                 max_daily_loss=50.0,
                 max_open_positions=3,
                 max_open_orders=3,
+                max_position_exposure=225.0,
             ),
         )
 
@@ -458,6 +488,7 @@ def test_1000_randomized_account_risk_manager_scenarios(
                 max_open_orders=(
                     max_orders
                 ),
+                max_position_exposure=225.0,
             )
         )
 

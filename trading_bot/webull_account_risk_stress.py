@@ -227,6 +227,22 @@ def run_webull_account_risk_stress(
             pending_buy_symbols=(
                 pending_buy_symbols
             ),
+            position_exposures=tuple(
+                (
+                    position_symbol,
+                    0.0,
+                )
+                for position_symbol
+                in position_symbols
+            ),
+            pending_buy_exposures=tuple(
+                (
+                    pending_symbol,
+                    0.0,
+                )
+                for pending_symbol
+                in pending_buy_symbols
+            ),
             data_is_current=(
                 risk_current
             ),
@@ -242,6 +258,7 @@ def run_webull_account_risk_stress(
             max_open_orders=(
                 max_orders
             ),
+            max_position_exposure=1000000.0,
         )
 
         result = (
