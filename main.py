@@ -5,6 +5,11 @@ from datetime import date
 
 from trading_bot.bot import TradingBot
 from trading_bot.market_calendar import nyse_trading_dates
+from trading_bot.config import (
+    WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED,
+    WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED,
+    WEBULL_TRADING_KILL_SWITCH,
+)
 from trading_bot.webull_sandbox_manual_order import (
     CANCEL_CONFIRMATION_PHRASE,
     CONFIRMATION_PHRASE,
@@ -14,6 +19,7 @@ from trading_bot.webull_sandbox_manual_order import (
 from trading_bot.webull_sandbox_runtime import (
     build_webull_sandbox_manual_order_service,
     build_webull_sandbox_preflight,
+    build_webull_sandbox_trade_events_runtime,
     discover_webull_sandbox_accounts,
     inspect_webull_sandbox_account,
 )
@@ -24,6 +30,9 @@ from trading_bot.webull_sandbox_manual_close import (
 )
 from trading_bot.webull_sandbox_runtime import (
     build_webull_sandbox_manual_close_service,
+)
+from trading_bot.webull_trade_events_lifecycle import (
+    WebullTradeEventsLifecycle,
 )
 from trading_bot.utils import setup_logging
 
@@ -44,6 +53,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-account-status",
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
+    "webull-sandbox-trade-events-check",
     "webull-sandbox-test-cancel",
     "webull-sandbox-test-close",
     "webull-sandbox-test-close-cancel",
@@ -262,6 +272,173 @@ def main() -> int:
             print(
                 "READ-ONLY — NO WEBULL ORDER "
                 "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
+        # -----------------------------------------
+        # One-shot Webull sandbox Trade Events check.
+        #
+        # This command may connect to the Webull sandbox and
+        # perform read-only reconciliation, but it cannot place,
+        # replace, cancel, or close a broker order.
+        #
+        # It additionally refuses to run unless BOTH sandbox
+        # mutation arms remain off and the live kill switch
+        # remains on.
+        # -----------------------------------------
+        if mode == "webull-sandbox-trade-events-check":
+            if len(sys.argv) != 2:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-trade-events-check"
+                )
+                return 2
+
+            if (
+                WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+                or WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
+                or not WEBULL_TRADING_KILL_SWITCH
+            ):
+                print()
+                print(
+                    "WEBULL SANDBOX TRADE EVENTS "
+                    "CHECK REFUSED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(
+                    "Reason: connectivity check requires "
+                    "sandbox submission=false, sandbox "
+                    "management=false, and live kill "
+                    "switch=true."
+                )
+                print(
+                    "READ-ONLY — NO WEBULL ORDER WAS "
+                    "PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            runtime = None
+            lifecycle = None
+            startup_result = None
+            startup_error = None
+            shutdown_error = None
+
+            try:
+                runtime = (
+                    build_webull_sandbox_trade_events_runtime()
+                )
+
+                lifecycle = (
+                    WebullTradeEventsLifecycle(
+                        runtime=runtime
+                    )
+                )
+
+                startup_result = lifecycle.start()
+
+                if (
+                    getattr(
+                        startup_result,
+                        "trusted",
+                        False,
+                    )
+                    is not True
+                ):
+                    raise RuntimeError(
+                        "TRADE_EVENTS_NOT_TRUSTED"
+                    )
+
+            except Exception as error:
+                startup_error = error
+
+            finally:
+                # Always attempt shutdown if a lifecycle was
+                # constructed, including startup failures after
+                # the isolated child has already been spawned.
+                if lifecycle is not None:
+                    try:
+                        lifecycle.stop()
+                    except Exception as error:
+                        shutdown_error = error
+
+                # Independently verify no Trade Events child is
+                # left alive before this one-shot command exits.
+                if runtime is not None:
+                    try:
+                        if runtime.supervisor.is_alive():
+                            raise RuntimeError(
+                                "TRADE_EVENTS_WORKER_"
+                                "STILL_RUNNING"
+                            )
+                    except Exception as error:
+                        if shutdown_error is None:
+                            shutdown_error = error
+
+            if (
+                startup_error is not None
+                or shutdown_error is not None
+            ):
+                print()
+                print(
+                    "WEBULL SANDBOX TRADE EVENTS "
+                    "CHECK FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+
+                if startup_error is not None:
+                    print(
+                        f"Reason: {startup_error}"
+                    )
+                else:
+                    print(
+                        f"Reason: {shutdown_error}"
+                    )
+
+                if (
+                    startup_error is not None
+                    and shutdown_error is not None
+                ):
+                    print(
+                        "Shutdown failure: "
+                        f"{shutdown_error}"
+                    )
+
+                print(
+                    "READ-ONLY — NO WEBULL ORDER WAS "
+                    "PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX TRADE EVENTS "
+                "CHECK PASSED"
+            )
+            print(
+                "--------------------------------"
+            )
+            print("Connected: True")
+            print("Reconciled: True")
+            print(
+                "Trusted: "
+                f"{startup_result.trusted}"
+            )
+            print(
+                "Startup polls: "
+                f"{startup_result.polls}"
+            )
+            print("Worker stopped: True")
+            print(
+                "--------------------------------"
+            )
+            print(
+                "READ-ONLY — NO WEBULL ORDER WAS "
+                "PLACED, MODIFIED, OR CANCELLED"
             )
 
             return 0
