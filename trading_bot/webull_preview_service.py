@@ -341,11 +341,10 @@ class WebullPreviewService:
                 in live_policy_plan.allocations
             }
 
-            self.committed_policy_funded = any(
-                item.allocation_weight > 0
-                for item
-                in live_policy_plan.allocations
-            )
+            # A positive committed allocation is only an
+            # opportunity to attempt a preview. It is not funded
+            # until a PREVIEW READY has survived safety, preview
+            # creation, and any configured capital reservation.
 
         if live_policy_plan is not None:
             fallback_rank = (
@@ -577,6 +576,13 @@ class WebullPreviewService:
 
                 stock.webull_preview = preview
                 results.append(preview)
+
+                if (
+                    trading_date is not None
+                    and preview.get("status")
+                    == "PREVIEW READY"
+                ):
+                    self.committed_policy_funded = True
 
                 working_account = replace(
                     working_account,
