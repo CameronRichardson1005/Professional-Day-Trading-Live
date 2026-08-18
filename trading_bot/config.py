@@ -264,6 +264,53 @@ if (
         "the hard total-exposure cap."
     )
 
+# Account-wide execution risk policy.
+#
+# These limits are used only by the explicit account-risk
+# execution path. They do not enable broker submission.
+#
+# Initial values were calibrated from the 2026-03-02 through
+# 2026-08-14 historical execution audit.
+WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS = float(
+    os.getenv(
+        "WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS",
+        "25",
+    )
+)
+
+WEBULL_EXECUTION_MAX_OPEN_POSITIONS = int(
+    os.getenv(
+        "WEBULL_EXECUTION_MAX_OPEN_POSITIONS",
+        "2",
+    )
+)
+
+WEBULL_EXECUTION_MAX_OPEN_ORDERS = int(
+    os.getenv(
+        "WEBULL_EXECUTION_MAX_OPEN_ORDERS",
+        "2",
+    )
+)
+
+if WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS <= 0:
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS "
+        "must be positive."
+    )
+
+if WEBULL_EXECUTION_MAX_OPEN_POSITIONS <= 0:
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MAX_OPEN_POSITIONS "
+        "must be positive."
+    )
+
+if WEBULL_EXECUTION_MAX_OPEN_ORDERS <= 0:
+    raise RuntimeError(
+        "WEBULL_EXECUTION_MAX_OPEN_ORDERS "
+        "must be positive."
+    )
+
+
 # Webull manual approval workflow.
 WEBULL_APPROVAL_TTL_SECONDS = int(
     os.getenv(

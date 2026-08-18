@@ -8,6 +8,11 @@ from .webull_safety import (
     WebullAccountState,
     WebullOrderProposal,
 )
+from .config import (
+    WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS,
+    WEBULL_EXECUTION_MAX_OPEN_ORDERS,
+    WEBULL_EXECUTION_MAX_OPEN_POSITIONS,
+)
 
 
 class WebullAccountRiskError(RuntimeError):
@@ -184,6 +189,21 @@ class WebullAccountRiskDecision:
 
     safe_execution_capital: float
     proposed_exposure: float
+
+
+def configured_execution_risk_limits(
+) -> WebullExecutionRiskLimits:
+    return WebullExecutionRiskLimits(
+        max_daily_loss=(
+            WEBULL_EXECUTION_MAX_DAILY_LOSS_DOLLARS
+        ),
+        max_open_positions=(
+            WEBULL_EXECUTION_MAX_OPEN_POSITIONS
+        ),
+        max_open_orders=(
+            WEBULL_EXECUTION_MAX_OPEN_ORDERS
+        ),
+    )
 
 
 class WebullAccountRiskGate:
