@@ -468,6 +468,18 @@ WEBULL_SANDBOX_ACCOUNT_ID = os.getenv(
 ).strip()
 
 
+# Earliest date that may be used when reconstructing strict
+# sandbox FIFO inventory for shadow execution-risk evaluation.
+#
+# This MUST be configured explicitly. It intentionally has no
+# default because choosing an incomplete history window could
+# understate realized P&L or lose overnight cost basis.
+WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE = os.getenv(
+    "WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE",
+    "",
+).strip()
+
+
 # Separate durable source-of-record for reduce-only Webull
 # sandbox position-closing orders. Keeping this distinct from
 # the BUY execution ledger preserves BUY-only entry invariants.

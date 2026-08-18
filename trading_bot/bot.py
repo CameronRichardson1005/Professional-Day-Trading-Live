@@ -101,6 +101,14 @@ class TradingBot:
         # authenticating against Webull.
         self.webull_strategy_market_data = None
 
+        # Lazily assembled sandbox-only shadow execution
+        # observer. Construction is deferred until a dated
+        # PREVIEW READY result is actually observed.
+        #
+        # No broker submission object is stored here.
+        self.webull_sandbox_shadow_runtime = None
+        self.webull_sandbox_shadow_runtime_date = None
+
         # Active live Manipulation strategy.
         self.strategy = ManipulationStrategy()
 
@@ -234,6 +242,213 @@ class TradingBot:
         return (
             self.webull_strategy_market_data
         )
+
+
+    def _get_webull_sandbox_shadow_runtime(
+            self,
+            date_str: str,
+    ):
+        """
+        Lazily assemble the sandbox-only shadow observer.
+
+        No Webull client is created during ordinary TradingBot
+        construction.
+
+        The strict FIFO history start date is required from
+        configuration and is never guessed.
+        """
+        from .config import (
+            WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE,
+        )
+        from .webull_sandbox_shadow_runtime import (
+            build_webull_sandbox_shadow_runtime,
+        )
+
+        try:
+            trading_date = datetime.strptime(
+                date_str,
+                "%Y-%m-%d",
+            ).date()
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+            raise RuntimeError(
+                "WEBULL_SANDBOX_SHADOW_TRADING_DATE_INVALID"
+            ) from error
+
+        history_start_text = str(
+            WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE
+        ).strip()
+
+        if not history_start_text:
+            raise RuntimeError(
+                "WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE_REQUIRED"
+            )
+
+        try:
+            history_start = datetime.strptime(
+                history_start_text,
+                "%Y-%m-%d",
+            ).date()
+        except ValueError as error:
+            raise RuntimeError(
+                "WEBULL_SANDBOX_SHADOW_HISTORY_START_DATE_INVALID"
+            ) from error
+
+        if history_start > trading_date:
+            raise RuntimeError(
+                "WEBULL_SANDBOX_SHADOW_HISTORY_START_AFTER_TRADING_DATE"
+            )
+
+        existing = getattr(
+            self,
+            "webull_sandbox_shadow_runtime",
+            None,
+        )
+
+        existing_date = getattr(
+            self,
+            "webull_sandbox_shadow_runtime_date",
+            None,
+        )
+
+        if (
+            existing is not None
+            and existing_date == date_str
+        ):
+            return existing
+
+        runtime = (
+            build_webull_sandbox_shadow_runtime(
+                trading_date_provider=(
+                    lambda: date_str
+                ),
+                history_start_date=(
+                    history_start_text
+                ),
+            )
+        )
+
+        self.webull_sandbox_shadow_runtime = (
+            runtime
+        )
+        self.webull_sandbox_shadow_runtime_date = (
+            date_str
+        )
+
+        return runtime
+
+
+    def _observe_webull_shadow_preview_safely(
+            self,
+            *,
+            preview: dict,
+            strategy_name: str,
+            date_str: str | None,
+    ):
+        """
+        Observe one successful preview through the sandbox-only
+        execution-risk shadow path.
+
+        Shadow failure is visible but cannot alter:
+        - the preview result;
+        - committed capital funding;
+        - Manipulation state;
+        - Quick Flip state.
+
+        No broker order can be submitted by this path.
+        """
+        if (
+            not isinstance(
+                preview,
+                dict,
+            )
+            or preview.get("status")
+            != "PREVIEW READY"
+        ):
+            return None
+
+        # Undated preview workflows remain unchanged.
+        if date_str is None:
+            return None
+
+        normalized_strategy = str(
+            strategy_name
+        ).strip().upper()
+
+        symbol = str(
+            preview.get(
+                "symbol",
+                "",
+            )
+        ).strip().upper()
+
+        try:
+            runtime = (
+                self
+                ._get_webull_sandbox_shadow_runtime(
+                    date_str
+                )
+            )
+
+            if normalized_strategy == "MANIPULATION":
+                record = (
+                    runtime.service
+                    .evaluate_manipulation_preview(
+                        preview=preview
+                    )
+                )
+
+            elif normalized_strategy == "QUICK_FLIP":
+                record = (
+                    runtime.service
+                    .evaluate_quick_flip_preview(
+                        preview=preview
+                    )
+                )
+
+            else:
+                raise RuntimeError(
+                    "WEBULL_SHADOW_STRATEGY_INVALID"
+                )
+
+        except Exception as error:
+            print(
+                "WARNING: Webull sandbox shadow "
+                f"evaluation unavailable for "
+                f"{normalized_strategy} {symbol or 'UNKNOWN'} · "
+                f"{type(error).__name__}. "
+                "Preview remains unchanged."
+            )
+
+            return None
+
+        status = str(
+            getattr(
+                record,
+                "status",
+                "UNKNOWN",
+            )
+        )
+
+        reason = str(
+            getattr(
+                record,
+                "reason",
+                "UNKNOWN",
+            )
+        )
+
+        print(
+            f"{symbol or 'UNKNOWN'}: "
+            f"{normalized_strategy} SHADOW · "
+            f"{status} · "
+            f"{reason} · "
+            "NOT SUBMITTED"
+        )
+
+        return record
 
 
     def run_scanner_research(
@@ -3304,6 +3519,12 @@ class TradingBot:
                     preview.get("status")
                     == "PREVIEW READY"
                 ):
+                    self._observe_webull_shadow_preview_safely(
+                        preview=preview,
+                        strategy_name="QUICK_FLIP",
+                        date_str=date_str,
+                    )
+
                     print(
                         f"{symbol}: QUICK FLIP "
                         "WEBULL PREVIEW READY · "
@@ -5289,6 +5510,12 @@ class TradingBot:
                 if status == "PREVIEW READY":
                     self._notify_manipulation_preview(
                         preview
+                    )
+
+                    self._observe_webull_shadow_preview_safely(
+                        preview=preview,
+                        strategy_name="MANIPULATION",
+                        date_str=date_str,
                     )
 
                     print(
