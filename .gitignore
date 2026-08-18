@@ -55,3 +55,6 @@ data/webull_10s/
 
 # Generated quantitative research outputs
 runtime/research/
+
+# Durable local Webull Trade Events journal
+runtime/webull_trade_events.jsonl
