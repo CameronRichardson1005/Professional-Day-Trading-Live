@@ -123,6 +123,15 @@ def test_manipulation_target_replays_buy_and_close():
     assert result.exit_price == 11.0
     assert result.realized_pnl == 1.0
 
+    assert result.exit_time == datetime(
+        2026,
+        3,
+        2,
+        14,
+        46,
+        tzinfo=UTC,
+    )
+
     assert simulator.cash == 1001
 
     assert (

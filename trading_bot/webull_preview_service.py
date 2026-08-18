@@ -13,6 +13,7 @@ from .capital_reservation_store import (
 )
 from .live_committed_allocator import (
     build_live_manipulation_allocation_plan,
+    rank_committed_allocations,
 )
 from .config import (
     WEBULL_CAPITAL_DEPLOYMENT_FRACTION,
@@ -319,12 +320,10 @@ class WebullPreviewService:
                     item.symbol
                 ] = item.allocation_weight
 
-            ranked_policy_items = sorted(
-                live_policy_plan.allocations,
-                key=lambda item: (
-                    -item.score,
-                    item.symbol,
-                ),
+            ranked_policy_items = (
+                rank_committed_allocations(
+                    live_policy_plan
+                )
             )
 
             live_policy_ranks = {
@@ -346,6 +345,24 @@ class WebullPreviewService:
                 item.allocation_weight > 0
                 for item
                 in live_policy_plan.allocations
+            )
+
+        if live_policy_plan is not None:
+            fallback_rank = (
+                len(
+                    live_policy_ranks
+                )
+                + 1
+            )
+
+            invest_stocks.sort(
+                key=lambda stock: (
+                    live_policy_ranks.get(
+                        stock.symbol,
+                        fallback_rank,
+                    ),
+                    stock.symbol,
+                )
             )
 
         preview_safety_ceiling = max(

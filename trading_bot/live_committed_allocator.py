@@ -249,3 +249,26 @@ def build_live_quick_flip_allocation_plan(
         opportunities,
         deployable_pool=deployable_pool,
     )
+
+
+def rank_committed_allocations(plan):
+    """
+    Return committed-policy allocations in the canonical order
+    used when finite execution capacity forces candidates to
+    compete.
+
+    Highest causal allocation score is attempted first.
+    Symbol and strategy provide deterministic tie-breaks.
+
+    This changes no allocation weights or dollar recommendations.
+    """
+    return tuple(
+        sorted(
+            plan.allocations,
+            key=lambda item: (
+                -float(item.score),
+                item.symbol,
+                item.strategy,
+            ),
+        )
+    )

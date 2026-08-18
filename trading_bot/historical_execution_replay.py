@@ -48,6 +48,7 @@ class HistoricalReplayResult:
 
     entry_order_id: str | None
     close_order_id: str | None
+    exit_time: datetime | None = None
 
 
 def _is_yes(
@@ -835,4 +836,5 @@ def replay_master_row_strategy(
         ),
         entry_order_id=entry_order_id,
         close_order_id=close_order_id,
+        exit_time=exit_bar.timestamp,
     )

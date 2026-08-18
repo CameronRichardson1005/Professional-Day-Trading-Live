@@ -9,6 +9,7 @@ from .capital_reservation_store import (
 )
 from .live_committed_allocator import (
     build_live_quick_flip_allocation_plan,
+    rank_committed_allocations,
 )
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -353,12 +354,10 @@ class QuickFlipWebullPreviewService:
                     item.symbol
                 ] = item.allocation_weight
 
-            ranked_policy_items = sorted(
-                live_policy_plan.allocations,
-                key=lambda item: (
-                    -item.score,
-                    item.symbol,
-                ),
+            ranked_policy_items = (
+                rank_committed_allocations(
+                    live_policy_plan
+                )
             )
 
             live_policy_ranks = {
@@ -380,6 +379,24 @@ class QuickFlipWebullPreviewService:
                 item.allocation_weight > 0
                 for item
                 in live_policy_plan.allocations
+            )
+
+        if live_policy_plan is not None:
+            fallback_rank = (
+                len(
+                    live_policy_ranks
+                )
+                + 1
+            )
+
+            invest_results.sort(
+                key=lambda item: (
+                    live_policy_ranks.get(
+                        item[0],
+                        fallback_rank,
+                    ),
+                    item[0],
+                )
             )
 
         preview_safety_ceiling = max(

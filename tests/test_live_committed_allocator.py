@@ -569,3 +569,40 @@ def test_live_history_uses_walk_forward_production_context(
         "MANIPULATION",
         "QUICK_FLIP",
     ]
+
+
+def test_committed_allocation_rank_is_score_then_symbol():
+    plan = SimpleNamespace(
+        allocations=(
+            SimpleNamespace(
+                symbol="AAA",
+                strategy="MANIPULATION",
+                score=1.0,
+            ),
+            SimpleNamespace(
+                symbol="ZZZ",
+                strategy="MANIPULATION",
+                score=5.0,
+            ),
+            SimpleNamespace(
+                symbol="BBB",
+                strategy="MANIPULATION",
+                score=5.0,
+            ),
+        )
+    )
+
+    ranked = (
+        module.rank_committed_allocations(
+            plan
+        )
+    )
+
+    assert [
+        item.symbol
+        for item in ranked
+    ] == [
+        "BBB",
+        "ZZZ",
+        "AAA",
+    ]
