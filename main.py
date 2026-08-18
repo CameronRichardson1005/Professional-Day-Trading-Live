@@ -1,6 +1,7 @@
 import getpass
 import logging
 import sys
+import time
 from datetime import date
 
 from trading_bot.bot import TradingBot
@@ -54,6 +55,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
     "webull-sandbox-trade-events-check",
+    "webull-sandbox-trade-events-watch",
     "webull-sandbox-test-cancel",
     "webull-sandbox-test-close",
     "webull-sandbox-test-close-cancel",
@@ -431,6 +433,257 @@ def main() -> int:
             print(
                 "Startup polls: "
                 f"{startup_result.polls}"
+            )
+            print("Worker stopped: True")
+            print(
+                "--------------------------------"
+            )
+            print(
+                "READ-ONLY — NO WEBULL ORDER WAS "
+                "PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
+        # -----------------------------------------
+        # Bounded read-only Webull sandbox Trade Events watch.
+        #
+        # The watcher may connect and receive sanitized broker
+        # events, but it cannot place, replace, cancel, or close
+        # an order. Both sandbox mutation arms must remain off.
+        # -----------------------------------------
+        if mode == "webull-sandbox-trade-events-watch":
+            if len(sys.argv) > 3:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-trade-events-watch "
+                    "[SECONDS]"
+                )
+                return 2
+
+            try:
+                watch_seconds = (
+                    float(sys.argv[2])
+                    if len(sys.argv) == 3
+                    else 30.0
+                )
+            except ValueError:
+                print(
+                    "Watch seconds must be numeric."
+                )
+                return 2
+
+            if (
+                watch_seconds < 1.0
+                or watch_seconds > 300.0
+            ):
+                print(
+                    "Watch seconds must be between "
+                    "1 and 300."
+                )
+                return 2
+
+            if (
+                WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+                or WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
+                or not WEBULL_TRADING_KILL_SWITCH
+            ):
+                print()
+                print(
+                    "WEBULL SANDBOX TRADE EVENTS "
+                    "WATCH REFUSED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(
+                    "Reason: watcher requires sandbox "
+                    "submission=false, sandbox "
+                    "management=false, and live kill "
+                    "switch=true."
+                )
+                print(
+                    "READ-ONLY — NO WEBULL ORDER WAS "
+                    "PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            runtime = None
+            lifecycle = None
+            startup_result = None
+            watch_polls = 0
+            initial_events = 0
+            final_events = 0
+            watch_error = None
+            shutdown_error = None
+
+            try:
+                runtime = (
+                    build_webull_sandbox_trade_events_runtime()
+                )
+
+                initial_events = (
+                    runtime.journal.event_count()
+                )
+
+                lifecycle = (
+                    WebullTradeEventsLifecycle(
+                        runtime=runtime
+                    )
+                )
+
+                startup_result = lifecycle.start()
+
+                if (
+                    getattr(
+                        startup_result,
+                        "trusted",
+                        False,
+                    )
+                    is not True
+                ):
+                    raise RuntimeError(
+                        "TRADE_EVENTS_NOT_TRUSTED"
+                    )
+
+                deadline = (
+                    time.monotonic()
+                    + watch_seconds
+                )
+
+                while (
+                    time.monotonic()
+                    < deadline
+                ):
+                    result = lifecycle.poll_once()
+                    watch_polls += 1
+
+                    if (
+                        getattr(
+                            result,
+                            "trusted",
+                            False,
+                        )
+                        is not True
+                    ):
+                        fatal_reason = getattr(
+                            runtime.health,
+                            "fatal_reason",
+                            None,
+                        )
+
+                        reason = (
+                            str(fatal_reason)
+                            if fatal_reason
+                            else "TRADE_EVENTS_TRUST_LOST"
+                        )
+
+                        raise RuntimeError(
+                            "TRADE_EVENTS_WATCH_"
+                            f"UNTRUSTED:{reason}"
+                        )
+
+                    time.sleep(
+                        0.10
+                    )
+
+                final_events = (
+                    runtime.journal.event_count()
+                )
+
+            except Exception as error:
+                watch_error = error
+
+            finally:
+                if lifecycle is not None:
+                    try:
+                        lifecycle.stop()
+                    except Exception as error:
+                        shutdown_error = error
+
+                if runtime is not None:
+                    try:
+                        if runtime.supervisor.is_alive():
+                            raise RuntimeError(
+                                "TRADE_EVENTS_WORKER_"
+                                "STILL_RUNNING"
+                            )
+                    except Exception as error:
+                        if shutdown_error is None:
+                            shutdown_error = error
+
+            if (
+                watch_error is not None
+                or shutdown_error is not None
+            ):
+                print()
+                print(
+                    "WEBULL SANDBOX TRADE EVENTS "
+                    "WATCH FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+
+                if watch_error is not None:
+                    print(
+                        f"Reason: {watch_error}"
+                    )
+                else:
+                    print(
+                        f"Reason: {shutdown_error}"
+                    )
+
+                if (
+                    watch_error is not None
+                    and shutdown_error is not None
+                ):
+                    print(
+                        "Shutdown failure: "
+                        f"{shutdown_error}"
+                    )
+
+                print(
+                    "READ-ONLY — NO WEBULL ORDER WAS "
+                    "PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            new_events = max(
+                0,
+                final_events - initial_events,
+            )
+
+            print()
+            print(
+                "WEBULL SANDBOX TRADE EVENTS "
+                "WATCH COMPLETE"
+            )
+            print(
+                "--------------------------------"
+            )
+            print("Connected: True")
+            print("Reconciled: True")
+            print("Trusted during watch: True")
+            print(
+                "Watch seconds: "
+                f"{watch_seconds:.1f}"
+            )
+            print(
+                "Startup polls: "
+                f"{startup_result.polls}"
+            )
+            print(
+                "Watch polls: "
+                f"{watch_polls}"
+            )
+            print(
+                "New journaled events: "
+                f"{new_events}"
+            )
+            print(
+                "Total journaled events: "
+                f"{final_events}"
             )
             print("Worker stopped: True")
             print(
