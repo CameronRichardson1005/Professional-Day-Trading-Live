@@ -52,6 +52,9 @@ from .webull_trade_events_journal import (
     WebullTradeEventsHealthState,
     WebullTradeEventsJournal,
 )
+from .webull_trade_events_ledger_sync import (
+    WebullTradeEventsLedgerSynchronizer,
+)
 from .webull_trade_events_parent import (
     WebullTradeEventsParentController,
 )
@@ -340,6 +343,104 @@ class WebullSandboxTradeEventsRuntime:
     controller: WebullTradeEventsParentController
 
 
+def _build_webull_trade_events_ledger_sync_handler(
+    *,
+    ledger: Any | None = None,
+    execution_manager: Any | None = None,
+) -> Callable[[dict[str, Any]], Any]:
+    """
+    Build the default trusted Trade Events handler lazily.
+
+    Runtime construction must remain completely offline.
+
+    The Webull broker and execution manager are therefore not
+    constructed until a trusted, already-journaled Trade Event is
+    actually dispatched by the parent controller.
+
+    The broker used for this reconciliation path always has order
+    submission disabled.
+    """
+
+    selected_ledger = (
+        ledger
+        if ledger is not None
+        else WebullExecutionLedger(
+            WEBULL_EXECUTION_LEDGER_FILE
+        )
+    )
+
+    selected_manager = (
+        execution_manager
+    )
+
+    synchronizer: (
+        WebullTradeEventsLedgerSynchronizer
+        | None
+    ) = None
+
+    def handle_event(
+        event: dict[str, Any],
+    ) -> Any:
+        nonlocal selected_manager
+        nonlocal synchronizer
+
+        if synchronizer is None:
+            if selected_manager is None:
+                broker = WebullSandboxBroker(
+                    account_id=(
+                        WEBULL_SANDBOX_ACCOUNT_ID
+                    ),
+                    execution_mode=(
+                        WEBULL_EXECUTION_MODE
+                    ),
+
+                    # Critical safety property:
+                    # Trade Events reconciliation can NEVER
+                    # submit an order.
+                    submission_enabled=False,
+                )
+
+                selected_manager = (
+                    WebullSandboxExecutionManager(
+                        broker=broker,
+                        ledger=selected_ledger,
+                        execution_mode=(
+                            WEBULL_EXECUTION_MODE
+                        ),
+                    )
+                )
+
+            reconcile_order = getattr(
+                selected_manager,
+                "reconcile",
+                None,
+            )
+
+            if not callable(
+                reconcile_order
+            ):
+                raise WebullSandboxTradeEventsRuntimeError(
+                    "TRADE_EVENTS_LEDGER_RECONCILE_INVALID"
+                )
+
+            synchronizer = (
+                WebullTradeEventsLedgerSynchronizer(
+                    expected_account_id=(
+                        WEBULL_SANDBOX_ACCOUNT_ID
+                    ),
+                    ledger=selected_ledger,
+                    reconcile_order=(
+                        reconcile_order
+                    ),
+                )
+            )
+
+        return synchronizer(
+            event
+        )
+
+    return handle_event
+
 def _run_webull_trade_events_worker_entry(
     app_key: str,
     app_secret: str,
@@ -472,6 +573,14 @@ def build_webull_sandbox_trade_events_runtime(
         else build_webull_sandbox_preflight
     )
 
+    selected_event_handler = (
+        event_handler
+        if event_handler is not None
+        else (
+            _build_webull_trade_events_ledger_sync_handler()
+        )
+    )
+
     reconcile = (
         _build_webull_trade_events_reconcile_callback(
             preflight_factory=(
@@ -546,7 +655,9 @@ def build_webull_sandbox_trade_events_runtime(
             control_queue=control_queue,
             journal=journal,
             reconcile=reconcile,
-            event_handler=event_handler,
+            event_handler=(
+                selected_event_handler
+            ),
             ensure_worker_healthy=(
                 supervisor.ensure_healthy
             ),
