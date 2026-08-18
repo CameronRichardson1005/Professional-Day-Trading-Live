@@ -128,6 +128,15 @@ def run_webull_account_risk_stress(
             for _ in range(order_count)
         )
 
+        pending_buy_symbols = tuple(
+            order_symbol
+            for order_symbol
+            in dict.fromkeys(
+                order_symbols
+            )
+            if rng.random() < 0.60
+        )
+
         symbol = rng.choice(
             universe
         )
@@ -215,6 +224,9 @@ def run_webull_account_risk_stress(
             kill_switch_active=(
                 kill_switch
             ),
+            pending_buy_symbols=(
+                pending_buy_symbols
+            ),
             data_is_current=(
                 risk_current
             ),
@@ -263,12 +275,12 @@ def run_webull_account_risk_stress(
                 order_count + 1
                 > max_orders,
                 (
-                    len(position_symbols)
-                    + (
-                        0
-                        if symbol
-                        in position_symbols
-                        else 1
+                    len(
+                        set(position_symbols)
+                        | set(
+                            pending_buy_symbols
+                        )
+                        | {symbol}
                     )
                     > max_positions
                 ),

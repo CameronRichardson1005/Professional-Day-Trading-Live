@@ -117,6 +117,7 @@ def risk_state(
     pnl=0.0,
     positions=(),
     orders=(),
+    pending_buys=(),
     kill=False,
     current=True,
 ):
@@ -127,6 +128,9 @@ def risk_state(
         ),
         open_order_symbols=orders,
         kill_switch_active=kill,
+        pending_buy_symbols=(
+            pending_buys
+        ),
         data_is_current=current,
     )
 
@@ -545,3 +549,38 @@ def test_1000_randomized_account_risk_manager_scenarios(
         "INSUFFICIENT_SAFE_EXECUTION_CAPITAL"
         in rejection_reasons
     )
+
+
+def test_pending_buy_slot_rejection_occurs_before_mutation(
+    tmp_path,
+):
+    execution, broker, ledger = (
+        manager(tmp_path)
+    )
+
+    with pytest.raises(
+        WebullExecutionManagerError,
+        match=(
+            "ACCOUNT_RISK_GATE_REJECTED:"
+            "MAX_OPEN_POSITIONS_EXCEEDED"
+        ),
+    ):
+        execution.submit_with_account_risk(
+            intent=intent(),
+            account=account(
+                cash=1000.0,
+                buying_power=1000.0,
+                exposure=50.0,
+                open_exposure=50.0,
+            ),
+            risk_state=risk_state(
+                positions=("AAPL",),
+                orders=("MSFT",),
+                pending_buys=("MSFT",),
+            ),
+            risk_limits=limits(),
+        )
+
+    assert broker.place_calls == []
+    assert broker.detail_calls == []
+    assert ledger.load() == {}

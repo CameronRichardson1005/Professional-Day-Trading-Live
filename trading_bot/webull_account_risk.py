@@ -85,6 +85,11 @@ class WebullExecutionRiskState:
     Open-order symbols contain one item per active order, so the
     tuple length is the active order count.
 
+    pending_buy_symbols contains the unique symbols represented
+    by active BUY entry orders. Each pending BUY reserves a
+    future position slot so concurrent entries cannot exceed the
+    configured position maximum after they fill.
+
     The kill switch and daily P&L are supplied explicitly rather
     than imported from paper-trading code.
     """
@@ -93,6 +98,7 @@ class WebullExecutionRiskState:
     open_position_symbols: tuple[str, ...]
     open_order_symbols: tuple[str, ...]
     kill_switch_active: bool
+    pending_buy_symbols: tuple[str, ...] = ()
     data_is_current: bool = True
 
     def __post_init__(self) -> None:
@@ -128,6 +134,14 @@ class WebullExecutionRiskState:
             in self.open_order_symbols
         )
 
+        pending_buys = tuple(
+            str(symbol)
+            .strip()
+            .upper()
+            for symbol
+            in self.pending_buy_symbols
+        )
+
         if any(
             not symbol
             for symbol in positions
@@ -144,12 +158,37 @@ class WebullExecutionRiskState:
                 "INVALID_OPEN_ORDER_SYMBOL"
             )
 
+        if any(
+            not symbol
+            for symbol in pending_buys
+        ):
+            raise WebullAccountRiskError(
+                "INVALID_PENDING_BUY_SYMBOL"
+            )
+
         if (
             len(set(positions))
             != len(positions)
         ):
             raise WebullAccountRiskError(
                 "DUPLICATE_POSITION_SYMBOL"
+            )
+
+        if (
+            len(set(pending_buys))
+            != len(pending_buys)
+        ):
+            raise WebullAccountRiskError(
+                "DUPLICATE_PENDING_BUY_SYMBOL"
+            )
+
+        if not set(
+            pending_buys
+        ).issubset(
+            set(orders)
+        ):
+            raise WebullAccountRiskError(
+                "PENDING_BUY_NOT_OPEN_ORDER"
             )
 
         object.__setattr__(
@@ -168,6 +207,12 @@ class WebullExecutionRiskState:
             self,
             "open_order_symbols",
             orders,
+        )
+
+        object.__setattr__(
+            self,
+            "pending_buy_symbols",
+            pending_buys,
         )
 
 
@@ -241,15 +286,22 @@ class WebullAccountRiskGate:
             risk_state.open_order_symbols
         )
 
-        position_already_exists = (
-            symbol
-            in risk_state.open_position_symbols
+        reserved_position_symbols = (
+            set(
+                risk_state.open_position_symbols
+            )
+            | set(
+                risk_state.pending_buy_symbols
+            )
         )
 
-        projected_positions = (
-            current_positions
-            if position_already_exists
-            else current_positions + 1
+        projected_position_symbols = (
+            reserved_position_symbols
+            | {symbol}
+        )
+
+        projected_positions = len(
+            projected_position_symbols
         )
 
         projected_orders = (

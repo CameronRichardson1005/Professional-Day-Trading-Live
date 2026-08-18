@@ -56,6 +56,7 @@ def state(
     pnl=0.0,
     positions=(),
     orders=(),
+    pending_buys=(),
     kill=False,
     current=True,
 ):
@@ -64,6 +65,7 @@ def state(
         open_position_symbols=positions,
         open_order_symbols=orders,
         kill_switch_active=kill,
+        pending_buy_symbols=pending_buys,
         data_is_current=current,
     )
 
@@ -232,4 +234,52 @@ def test_invalid_daily_loss_limit_rejected(
             max_daily_loss=value,
             max_open_positions=2,
             max_open_orders=2,
+        )
+
+
+def test_pending_buy_reserves_future_position_slot():
+    result = evaluate(
+        proposal_value=proposal(
+            symbol="NVDA",
+        ),
+        state_value=state(
+            positions=("AAPL",),
+            orders=("MSFT",),
+            pending_buys=("MSFT",),
+        ),
+    )
+
+    assert not result.allowed
+    assert result.reason == (
+        "MAX_OPEN_POSITIONS_EXCEEDED"
+    )
+    assert result.current_open_positions == 1
+    assert result.projected_open_positions == 3
+
+
+def test_pending_buy_for_existing_position_does_not_double_count():
+    result = evaluate(
+        proposal_value=proposal(
+            symbol="NVDA",
+        ),
+        state_value=state(
+            positions=("AAPL",),
+            orders=("AAPL",),
+            pending_buys=("AAPL",),
+        ),
+    )
+
+    assert result.allowed
+    assert result.current_open_positions == 1
+    assert result.projected_open_positions == 2
+
+
+def test_pending_buy_must_correspond_to_open_order():
+    with pytest.raises(
+        WebullAccountRiskError,
+        match="PENDING_BUY_NOT_OPEN_ORDER",
+    ):
+        state(
+            orders=(),
+            pending_buys=("MSFT",),
         )
