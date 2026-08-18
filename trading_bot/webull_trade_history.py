@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+import math
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -165,6 +166,525 @@ def parse_webull_fills(
     )
 
     return fills
+
+
+
+
+def parse_webull_fills_strict(
+    payload: Any,
+) -> list[WebullFill]:
+    """
+    Execution-risk parser for Webull order history.
+
+    Unlike the legacy reporting parser, malformed broker data
+    fails closed.
+
+    Any order with positive cumulative filled_quantity is
+    treated as a real fill even if its terminal status is
+    CANCELLED or PARTIALLY_FILLED.
+    """
+    if not isinstance(
+        payload,
+        list,
+    ):
+        raise WebullTradeHistoryError(
+            "STRICT_HISTORY_PAYLOAD_NOT_LIST"
+        )
+
+    fills: list[WebullFill] = []
+
+    for group_index, group in enumerate(
+        payload
+    ):
+        if not isinstance(
+            group,
+            dict,
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_HISTORY_GROUP_INVALID"
+            )
+
+        if "orders" not in group:
+            raise WebullTradeHistoryError(
+                "STRICT_HISTORY_ORDERS_MISSING"
+            )
+
+        orders = group[
+            "orders"
+        ]
+
+        if not isinstance(
+            orders,
+            list,
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_HISTORY_ORDERS_INVALID"
+            )
+
+        for order_index, order in enumerate(
+            orders
+        ):
+            if not isinstance(
+                order,
+                dict,
+            ):
+                raise WebullTradeHistoryError(
+                    "STRICT_HISTORY_ORDER_INVALID"
+                )
+
+            raw_quantity = order.get(
+                "filled_quantity",
+                0,
+            )
+
+            try:
+                quantity = float(
+                    raw_quantity
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_QUANTITY_INVALID"
+                ) from error
+
+            if (
+                not math.isfinite(
+                    quantity
+                )
+                or quantity < 0
+            ):
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_QUANTITY_INVALID"
+                )
+
+            if quantity == 0:
+                continue
+
+            symbol = str(
+                order.get(
+                    "symbol",
+                    "",
+                )
+            ).strip().upper()
+
+            if not symbol:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILL_SYMBOL_MISSING"
+                )
+
+            side = str(
+                order.get(
+                    "side",
+                    "",
+                )
+            ).strip().upper()
+
+            if side not in {
+                "BUY",
+                "SELL",
+            }:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILL_SIDE_INVALID"
+                )
+
+            raw_price = order.get(
+                "filled_price"
+            )
+
+            try:
+                price = float(
+                    raw_price
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_PRICE_INVALID"
+                ) from error
+
+            if (
+                not math.isfinite(
+                    price
+                )
+                or price <= 0
+            ):
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_PRICE_INVALID"
+                )
+
+            filled_time = order.get(
+                "filled_time"
+            )
+
+            if filled_time in {
+                None,
+                "",
+            }:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_TIME_MISSING"
+                )
+
+            try:
+                timestamp_value = float(
+                    filled_time
+                )
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_TIME_INVALID"
+                ) from error
+
+            if not math.isfinite(
+                timestamp_value
+            ):
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_TIME_INVALID"
+                )
+
+            try:
+                filled_at = (
+                    _filled_datetime(
+                        timestamp_value
+                    )
+                )
+            except (
+                OverflowError,
+                OSError,
+                ValueError,
+            ) as error:
+                raise WebullTradeHistoryError(
+                    "STRICT_FILLED_TIME_INVALID"
+                ) from error
+
+            fills.append(
+                WebullFill(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    price=price,
+                    filled_at=filled_at,
+                )
+            )
+
+    fills.sort(
+        key=lambda fill: (
+            fill.filled_at,
+        )
+    )
+
+    return fills
+
+
+def calculate_fifo_realized_trades_strict(
+    fills: list[WebullFill],
+    date_str: str,
+) -> tuple[
+    list[RealizedTrade],
+    dict[str, float],
+]:
+    """
+    Reconstruct long inventory from every supplied fill up to
+    the end of date_str, then report only P&L realized by SELL
+    fills occurring on date_str.
+
+    This preserves overnight FIFO cost basis.
+
+    If a SELL cannot be fully matched to known prior BUY
+    inventory, the calculation fails closed rather than
+    understating losses or inventing cost basis.
+    """
+    try:
+        target_date = (
+            date.fromisoformat(
+                date_str
+            )
+        )
+    except ValueError as error:
+        raise WebullTradeHistoryError(
+            "STRICT_REALIZED_PNL_DATE_INVALID"
+        ) from error
+
+    ordered = sorted(
+        fills,
+        key=lambda fill: (
+            fill.filled_at,
+        ),
+    )
+
+    inventory: dict[
+        str,
+        deque[list[Any]],
+    ] = defaultdict(deque)
+
+    realized: list[
+        RealizedTrade
+    ] = []
+
+    tolerance = 1e-9
+
+    for fill in ordered:
+        if (
+            not isinstance(
+                fill,
+                WebullFill,
+            )
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_OBJECT_INVALID"
+            )
+
+        if (
+            fill.filled_at.tzinfo
+            is None
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_TIMESTAMP_NOT_AWARE"
+            )
+
+        if (
+            not math.isfinite(
+                float(
+                    fill.quantity
+                )
+            )
+            or float(
+                fill.quantity
+            ) <= 0
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_QUANTITY_INVALID"
+            )
+
+        if (
+            not math.isfinite(
+                float(
+                    fill.price
+                )
+            )
+            or float(
+                fill.price
+            ) <= 0
+        ):
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_PRICE_INVALID"
+            )
+
+        symbol = (
+            fill.symbol
+            .strip()
+            .upper()
+        )
+
+        side = (
+            fill.side
+            .strip()
+            .upper()
+        )
+
+        if not symbol:
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_SYMBOL_INVALID"
+            )
+
+        if side not in {
+            "BUY",
+            "SELL",
+        }:
+            raise WebullTradeHistoryError(
+                "STRICT_FILL_SIDE_INVALID"
+            )
+
+        fill_date = (
+            fill.filled_at
+            .astimezone(
+                EASTERN
+            )
+            .date()
+        )
+
+        if fill_date > target_date:
+            continue
+
+        if side == "BUY":
+            inventory[
+                symbol
+            ].append(
+                [
+                    float(
+                        fill.quantity
+                    ),
+                    float(
+                        fill.price
+                    ),
+                    fill.filled_at,
+                ]
+            )
+
+            continue
+
+        sell_remaining = float(
+            fill.quantity
+        )
+
+        while (
+            sell_remaining
+            > tolerance
+        ):
+            lots = inventory[
+                symbol
+            ]
+
+            if not lots:
+                raise WebullTradeHistoryError(
+                    "SELL_EXCEEDS_KNOWN_LONG_INVENTORY"
+                )
+
+            lot = lots[0]
+
+            buy_remaining = float(
+                lot[0]
+            )
+
+            buy_price = float(
+                lot[1]
+            )
+
+            buy_time = lot[2]
+
+            matched_quantity = min(
+                sell_remaining,
+                buy_remaining,
+            )
+
+            if fill_date == target_date:
+                gross_cost = (
+                    matched_quantity
+                    * buy_price
+                )
+
+                gross_proceeds = (
+                    matched_quantity
+                    * float(
+                        fill.price
+                    )
+                )
+
+                pnl = (
+                    gross_proceeds
+                    - gross_cost
+                )
+
+                return_pct = (
+                    pnl
+                    / gross_cost
+                    * 100.0
+                )
+
+                realized.append(
+                    RealizedTrade(
+                        date=date_str,
+                        symbol=symbol,
+                        buy_time=buy_time,
+                        sell_time=(
+                            fill.filled_at
+                        ),
+                        quantity=round(
+                            matched_quantity,
+                            6,
+                        ),
+                        buy_price=round(
+                            buy_price,
+                            4,
+                        ),
+                        sell_price=round(
+                            float(
+                                fill.price
+                            ),
+                            4,
+                        ),
+                        gross_cost=round(
+                            gross_cost,
+                            2,
+                        ),
+                        gross_proceeds=round(
+                            gross_proceeds,
+                            2,
+                        ),
+                        realized_pnl=round(
+                            pnl,
+                            2,
+                        ),
+                        return_pct=round(
+                            return_pct,
+                            4,
+                        ),
+                    )
+                )
+
+            buy_remaining -= (
+                matched_quantity
+            )
+
+            sell_remaining -= (
+                matched_quantity
+            )
+
+            if (
+                buy_remaining
+                <= tolerance
+            ):
+                lots.popleft()
+            else:
+                lot[0] = (
+                    buy_remaining
+                )
+
+    remaining = {
+        symbol: round(
+            sum(
+                float(
+                    lot[0]
+                )
+                for lot
+                in lots
+            ),
+            6,
+        )
+        for symbol, lots
+        in inventory.items()
+        if lots
+    }
+
+    return (
+        realized,
+        remaining,
+    )
+
+
+def strict_daily_realized_pnl(
+    fills: list[WebullFill],
+    date_str: str,
+) -> float:
+    trades, _ = (
+        calculate_fifo_realized_trades_strict(
+            fills,
+            date_str,
+        )
+    )
+
+    return round(
+        sum(
+            trade.realized_pnl
+            for trade
+            in trades
+        ),
+        2,
+    )
 
 
 def fills_for_date(
