@@ -58,6 +58,9 @@ from .webull_trade_events_parent import (
 from .webull_trade_events_process import (
     WebullTradeEventsProcessSupervisor,
 )
+from .webull_trade_events_reconciliation import (
+    WebullTradeEventsPreflightReconciler,
+)
 from .webull_trade_events_worker import (
     WEBULL_SANDBOX_EVENTS_HOST,
     run_webull_trade_events_worker,
@@ -360,9 +363,51 @@ def _run_webull_trade_events_worker_entry(
     )
 
 
+
+def _build_webull_trade_events_reconcile_callback(
+    *,
+    preflight_factory: Callable[[], Any],
+    expected_account_id: str,
+) -> Callable[[], Any]:
+    """
+    Build a lazy Trade Events reconciliation callback.
+
+    No preflight object and no Webull SDK client is constructed
+    here. The factory is invoked only when reconciliation is
+    actually required after CONNECTED.
+    """
+
+    if not callable(preflight_factory):
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_PREFLIGHT_FACTORY_INVALID"
+        )
+
+    account_id = str(
+        expected_account_id
+    ).strip()
+
+    if not account_id:
+        raise WebullSandboxTradeEventsRuntimeError(
+            "TRADE_EVENTS_SANDBOX_ACCOUNT_ID_REQUIRED"
+        )
+
+    def reconcile() -> Any:
+        preflight = preflight_factory()
+
+        reconciler = (
+            WebullTradeEventsPreflightReconciler(
+                preflight=preflight,
+                expected_account_id=account_id,
+            )
+        )
+
+        return reconciler()
+
+    return reconcile
+
+
 def build_webull_sandbox_trade_events_runtime(
     *,
-    reconcile: Callable[[], Any],
     event_handler: (
         Callable[[dict[str, Any]], None]
         | None
@@ -377,6 +422,10 @@ def build_webull_sandbox_trade_events_runtime(
     ) = None,
     journal_path: (
         str | Path | None
+    ) = None,
+    preflight_factory: (
+        Callable[[], Any]
+        | None
     ) = None,
 ) -> WebullSandboxTradeEventsRuntime:
     """
@@ -409,11 +458,6 @@ def build_webull_sandbox_trade_events_runtime(
             "TRADE_EVENTS_SANDBOX_ACCOUNT_ID_REQUIRED"
         )
 
-    if not callable(reconcile):
-        raise WebullSandboxTradeEventsRuntimeError(
-            "TRADE_EVENTS_RECONCILE_INVALID"
-        )
-
     if (
         event_handler is not None
         and not callable(event_handler)
@@ -421,6 +465,23 @@ def build_webull_sandbox_trade_events_runtime(
         raise WebullSandboxTradeEventsRuntimeError(
             "TRADE_EVENTS_HANDLER_INVALID"
         )
+
+    selected_preflight_factory = (
+        preflight_factory
+        if preflight_factory is not None
+        else build_webull_sandbox_preflight
+    )
+
+    reconcile = (
+        _build_webull_trade_events_reconcile_callback(
+            preflight_factory=(
+                selected_preflight_factory
+            ),
+            expected_account_id=(
+                WEBULL_SANDBOX_ACCOUNT_ID
+            ),
+        )
+    )
 
     if queue_factory is None:
         context = mp.get_context(

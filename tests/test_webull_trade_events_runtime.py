@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -99,7 +100,6 @@ def test_runtime_construction_does_not_start_process(
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=queue_factory,
             process_factory=(
                 forbidden_process_factory
@@ -128,7 +128,6 @@ def test_runtime_uses_shared_parent_worker_queues(
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=queue_factory,
             process_factory=lambda **kwargs: None,
         )
@@ -187,7 +186,6 @@ def test_runtime_worker_is_fixed_to_sandbox_host(
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=queue_factory,
             process_factory=lambda **kwargs: None,
         )
@@ -233,7 +231,6 @@ def test_runtime_uses_dedicated_journal_path(
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=queue_factory,
             process_factory=lambda **kwargs: None,
         )
@@ -266,7 +263,6 @@ def test_parent_and_runtime_share_health_state(
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=queue_factory,
             process_factory=lambda **kwargs: None,
         )
@@ -293,7 +289,7 @@ def test_parent_and_runtime_share_health_state(
     )
 
 
-def test_runtime_construction_does_not_reconcile(
+def test_runtime_construction_does_not_build_preflight(
     monkeypatch,
     tmp_path,
 ):
@@ -308,31 +304,124 @@ def test_runtime_construction_does_not_reconcile(
 
     calls = []
 
-    def reconcile():
-        calls.append(
-            True
-        )
+    def preflight_factory():
+        calls.append(True)
 
         raise AssertionError(
-            "Reconciliation must not occur "
-            "during construction."
+            "Preflight must not be built "
+            "during runtime construction."
         )
 
     runtime = (
         module
         .build_webull_sandbox_trade_events_runtime(
-            reconcile=reconcile,
             queue_factory=queue_factory,
             process_factory=lambda **kwargs: None,
+            preflight_factory=preflight_factory,
         )
     )
 
     assert calls == []
 
-    assert (
+    assert callable(
         runtime.controller.reconcile
-        is reconcile
     )
+
+
+def test_runtime_reconciliation_builds_preflight_lazily(
+    monkeypatch,
+    tmp_path,
+):
+    install_safe_config(
+        monkeypatch,
+        tmp_path,
+    )
+
+    queue_factory, _ = (
+        queue_factory_capture()
+    )
+
+    report = SimpleNamespace(
+        allowed=True,
+        reason="OK",
+        account_id="sandbox-account-1",
+        available_cash=500.0,
+        current_exposure=0.0,
+        reconciled_orders=2,
+        active_manual_overrides=0,
+        open_orders=0,
+    )
+
+    class FakePreflight:
+        def __init__(self):
+            self.run_calls = 0
+
+        def run(self):
+            self.run_calls += 1
+            return report
+
+    preflight = FakePreflight()
+    factory_calls = []
+
+    def preflight_factory():
+        factory_calls.append(True)
+        return preflight
+
+    runtime = (
+        module
+        .build_webull_sandbox_trade_events_runtime(
+            queue_factory=queue_factory,
+            process_factory=lambda **kwargs: None,
+            preflight_factory=preflight_factory,
+        )
+    )
+
+    assert factory_calls == []
+    assert preflight.run_calls == 0
+
+    result = (
+        runtime.controller.reconcile()
+    )
+
+    assert result is report
+    assert factory_calls == [True]
+    assert preflight.run_calls == 1
+
+
+def test_invalid_preflight_factory_fails_before_resource_creation(
+    monkeypatch,
+    tmp_path,
+):
+    install_safe_config(
+        monkeypatch,
+        tmp_path,
+    )
+
+    queue_calls = []
+
+    def queue_factory(
+        *,
+        maxsize,
+    ):
+        queue_calls.append(maxsize)
+
+        raise AssertionError(
+            "Queue must not be created."
+        )
+
+    with pytest.raises(
+        module.WebullSandboxTradeEventsRuntimeError,
+        match=(
+            "TRADE_EVENTS_PREFLIGHT_FACTORY_INVALID"
+        ),
+    ):
+        module.build_webull_sandbox_trade_events_runtime(
+            queue_factory=queue_factory,
+            process_factory=lambda **kwargs: None,
+            preflight_factory="not-callable",
+        )
+
+    assert queue_calls == []
 
 
 def test_non_sandbox_mode_fails_before_resource_creation(
@@ -371,7 +460,6 @@ def test_non_sandbox_mode_fails_before_resource_creation(
         ),
     ):
         module.build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=forbidden_queue_factory,
             process_factory=lambda **kwargs: None,
         )
@@ -435,7 +523,6 @@ def test_missing_required_sandbox_identity_fails_closed(
         match=reason,
     ):
         module.build_webull_sandbox_trade_events_runtime(
-            reconcile=lambda: None,
             queue_factory=forbidden_queue_factory,
             process_factory=lambda **kwargs: None,
         )
