@@ -515,7 +515,10 @@ def _create_sdk_trade_events_client(
 
     retry_policy = (
         DefaultSubscribeRetryPolicy(
-            max_retry_times=0,
+            # Webull rejects zero. One is the smallest
+            # supported bounded retry count and avoids the
+            # SDK's unlimited default retry behavior.
+            max_retry_times=1,
         )
     )
 
@@ -586,25 +589,37 @@ def run_webull_trade_events_worker(
         )
     )
 
-    if client_factory is None:
-        client = (
-            _create_sdk_trade_events_client(
-                app_key=app_key,
-                app_secret=app_secret,
-                host=host,
+    try:
+        if client_factory is None:
+            client = (
+                _create_sdk_trade_events_client(
+                    app_key=app_key,
+                    app_secret=app_secret,
+                    host=host,
+                )
             )
-        )
-    else:
-        try:
+        else:
             client = client_factory(
                 app_key=app_key,
                 app_secret=app_secret,
                 host=host,
             )
-        except Exception as error:
-            raise WebullTradeEventsWorkerError(
-                "TRADE_EVENTS_CLIENT_CREATE_FAILED"
-            ) from error
+    except Exception as error:
+        reason = (
+            "TRADE_EVENTS_CLIENT_CREATE_FAILED"
+        )
+
+        _put_control_message(
+            control_queue,
+            {
+                "type": "FATAL",
+                "reason": reason,
+            },
+        )
+
+        raise WebullTradeEventsWorkerError(
+            reason
+        ) from error
 
     client.on_events_message = (
         callback

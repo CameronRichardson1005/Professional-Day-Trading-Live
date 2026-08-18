@@ -547,3 +547,104 @@ def test_production_host_is_rejected_before_client_creation():
         )
 
     assert factory_calls == []
+
+
+def test_real_sdk_client_factory_constructs_without_network():
+    """
+    Regression for Webull SDK rejecting max_retry_times=0.
+
+    Providing an explicit host means TradeEventsClient
+    construction does not perform endpoint discovery, and this
+    test deliberately never calls do_subscribe().
+    """
+
+    from trading_bot.webull_trade_events_worker import (
+        _create_sdk_trade_events_client,
+    )
+
+    client = _create_sdk_trade_events_client(
+        app_key="dummy-app-key",
+        app_secret="dummy-app-secret",
+        host="events-api.sandbox.webull.com",
+    )
+
+    assert client is not None
+
+    assert (
+        getattr(
+            client,
+            "_host",
+            None,
+        )
+        == "events-api.sandbox.webull.com"
+    )
+
+    assert (
+        getattr(
+            client,
+            "_port",
+            None,
+        )
+        == 443
+    )
+
+    assert (
+        getattr(
+            client,
+            "_tls_enable",
+            None,
+        )
+        is True
+    )
+
+
+def test_client_creation_failure_publishes_fatal_control():
+    from queue import Queue
+
+    events = Queue(
+        maxsize=2
+    )
+
+    control = Queue(
+        maxsize=2
+    )
+
+    def failing_factory(
+        **kwargs,
+    ):
+        del kwargs
+
+        raise RuntimeError(
+            "secret underlying SDK failure"
+        )
+
+    with pytest.raises(
+        WebullTradeEventsWorkerError,
+        match=(
+            "TRADE_EVENTS_CLIENT_CREATE_FAILED"
+        ),
+    ):
+        run_webull_trade_events_worker(
+            app_key="test-key",
+            app_secret="test-secret",
+            account_ids=(
+                "sandbox-1",
+            ),
+            event_queue=events,
+            control_queue=control,
+            host=(
+                "events-api.sandbox.webull.com"
+            ),
+            client_factory=(
+                failing_factory
+            ),
+        )
+
+    assert control.get_nowait() == {
+        "type": "FATAL",
+        "reason": (
+            "TRADE_EVENTS_CLIENT_CREATE_FAILED"
+        ),
+    }
+
+    assert events.empty()
