@@ -316,25 +316,41 @@ def test_invalid_same_day_range_fails_before_network():
     )
 
 
-def test_more_than_two_year_range_fails_closed():
+def test_full_history_range_is_allowed():
     history, client = reader({
         None: [],
     })
 
-    with pytest.raises(
-        WebullBrokerHistoryError,
-        match=(
-            "HISTORY_DATE_RANGE_TOO_LARGE"
-        ),
-    ):
-        history.get_history_payload(
-            start_date="2024-08-17",
-            end_date="2026-08-18",
-        )
+    payload = history.get_history_payload(
+        start_date="2018-05-21",
+        end_date="2026-08-18",
+    )
+
+    assert payload == []
+
+    assert len(
+        client.order_v3.calls
+    ) == 1
+
+    call = (
+        client.order_v3.calls[0]
+    )
 
     assert (
-        client.order_v3.calls
-        == []
+        call["start_date"]
+        == "2018-05-21"
+    )
+
+    assert (
+        call["end_date"]
+        == "2026-08-18"
+    )
+
+    assert (
+        call[
+            "last_client_order_id"
+        ]
+        is None
     )
 
 

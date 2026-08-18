@@ -129,33 +129,6 @@ class WebullStrictBrokerHistoryReader:
                 "HISTORY_DATE_RANGE_INVALID"
             )
 
-        if (
-            end.year
-            - start.year
-            > 2
-        ):
-            raise WebullBrokerHistoryError(
-                "HISTORY_DATE_RANGE_TOO_LARGE"
-            )
-
-        two_year_anniversary = (
-            start.replace(
-                year=start.year + 2
-            )
-            if not (
-                start.month == 2
-                and start.day == 29
-            )
-            else start.replace(
-                year=start.year + 2,
-                day=28,
-            )
-        )
-
-        if end > two_year_anniversary:
-            raise WebullBrokerHistoryError(
-                "HISTORY_DATE_RANGE_TOO_LARGE"
-            )
 
     @staticmethod
     def _group_cursor(
