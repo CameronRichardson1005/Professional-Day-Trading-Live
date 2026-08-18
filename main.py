@@ -35,6 +35,9 @@ from trading_bot.webull_sandbox_runtime import (
 from trading_bot.webull_trade_events_lifecycle import (
     WebullTradeEventsLifecycle,
 )
+from trading_bot.webull_sandbox_persistent_runtime import (
+    WebullSandboxPersistentRuntime,
+)
 from trading_bot.utils import setup_logging
 
 
@@ -54,6 +57,7 @@ AVAILABLE_MODES = (
     "webull-sandbox-account-status",
     "webull-sandbox-accounts",
     "webull-sandbox-preflight",
+    "webull-sandbox-runtime",
     "webull-sandbox-trade-events-check",
     "webull-sandbox-trade-events-watch",
     "webull-sandbox-test-cancel",
@@ -273,6 +277,121 @@ def main() -> int:
             )
             print(
                 "READ-ONLY — NO WEBULL ORDER "
+                "WAS PLACED, MODIFIED, OR CANCELLED"
+            )
+
+            return 0
+
+        # -----------------------------------------
+        # Persistent execution-disarmed Webull sandbox runtime.
+        #
+        # This process maintains:
+        #   - Trade Events connectivity
+        #   - authoritative preflight/reconciliation
+        #   - trusted stream health
+        #   - durable Trade Events journaling
+        #   - local ledger synchronization
+        #
+        # It exposes no automatic broker mutation path and
+        # refuses to start unless BOTH sandbox mutation arms
+        # remain disabled and the live kill switch remains on.
+        # -----------------------------------------
+        if mode == "webull-sandbox-runtime":
+            if len(sys.argv) != 2:
+                print(
+                    "Usage: python main.py "
+                    "webull-sandbox-runtime"
+                )
+                return 2
+
+            if (
+                WEBULL_SANDBOX_ORDER_SUBMISSION_ENABLED
+                or WEBULL_SANDBOX_ORDER_MANAGEMENT_ENABLED
+                or not WEBULL_TRADING_KILL_SWITCH
+            ):
+                print()
+                print(
+                    "WEBULL SANDBOX RUNTIME REFUSED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(
+                    "Reason: persistent runtime requires "
+                    "sandbox submission=false, sandbox "
+                    "management=false, and live kill "
+                    "switch=true."
+                )
+                print(
+                    "EXECUTION-DISARMED — NO WEBULL ORDER "
+                    "WAS PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            try:
+                runtime = (
+                    build_webull_sandbox_trade_events_runtime()
+                )
+
+                persistent_runtime = (
+                    WebullSandboxPersistentRuntime(
+                        runtime=runtime
+                    )
+                )
+
+                report = (
+                    persistent_runtime.run()
+                )
+
+            except Exception as error:
+                print()
+                print(
+                    "WEBULL SANDBOX RUNTIME FAILED"
+                )
+                print(
+                    "--------------------------------"
+                )
+                print(
+                    f"Reason: {error}"
+                )
+                print(
+                    "EXECUTION-DISARMED — NO WEBULL ORDER "
+                    "WAS PLACED, MODIFIED, OR CANCELLED"
+                )
+                return 1
+
+            print()
+            print(
+                "WEBULL SANDBOX RUNTIME STOPPED"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "Trusted startup: "
+                f"{report.trusted}"
+            )
+            print(
+                "Startup polls: "
+                f"{report.startup_polls}"
+            )
+            print(
+                "Runtime polls: "
+                f"{report.runtime_polls}"
+            )
+            print(
+                "Interrupted: "
+                f"{report.interrupted}"
+            )
+            print(
+                "Worker stopped: "
+                f"{report.worker_stopped}"
+            )
+            print(
+                "--------------------------------"
+            )
+            print(
+                "EXECUTION-DISARMED — NO WEBULL ORDER "
                 "WAS PLACED, MODIFIED, OR CANCELLED"
             )
 
