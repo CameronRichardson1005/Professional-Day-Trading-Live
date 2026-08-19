@@ -81,11 +81,11 @@ class SheetsClient:
         self._worksheet_values_cache = {}
 
     @staticmethod
-    def _is_sheets_quota_429(
+    def _is_sheets_transient_error(
             error: Exception,
     ) -> bool:
         """
-        Return True only for Google Sheets API quota HTTP 429s.
+        Return True only for transient Google Sheets API 429/503 errors.
 
         Authentication, permission, schema, worksheet, and other
         API failures must not be silently retried here.
@@ -108,7 +108,7 @@ class SheetsClient:
             None,
         )
 
-        if status_code == 429:
+        if status_code in {429, 503}:
             return True
 
         error_code = getattr(
@@ -117,7 +117,7 @@ class SheetsClient:
             None,
         )
 
-        if error_code == 429:
+        if error_code in {429, 503}:
             return True
 
         message = str(error).lower()
@@ -136,14 +136,14 @@ class SheetsClient:
             **kwargs,
     ):
         """
-        Retry only temporary Google Sheets 429 quota errors.
+        Retry temporary Google Sheets 429 quota and 503 service errors.
 
         Attempts:
         1. immediate
         2. after 15 seconds
         3. after 30 seconds
 
-        Any non-429 error is raised immediately.
+        Any non-transient error is raised immediately.
         """
         retry_delays = (
             15,
@@ -161,7 +161,7 @@ class SheetsClient:
                 )
 
             except Exception as error:
-                if not self._is_sheets_quota_429(
+                if not self._is_sheets_transient_error(
                     error
                 ):
                     raise
@@ -182,7 +182,74 @@ class SheetsClient:
 
                 print(
                     f"{label} hit Google Sheets "
-                    f"quota 429 "
+                    f"transient 429/503 error "
+                    f"(attempt "
+                    f"{attempt}/{max_attempts}). "
+                    f"Retrying in "
+                    f"{wait_seconds} seconds."
+                )
+
+                time.sleep(
+                    wait_seconds
+                )
+
+        raise RuntimeError(
+            f"{label} retry loop exited unexpectedly."
+        )
+
+    def _sheets_write_with_transient_retry(
+            self,
+            func,
+            *args,
+            label: str = "Google Sheets write",
+            max_attempts: int = 3,
+            **kwargs,
+    ):
+        """
+        Retry deterministic Google Sheets writes only for
+        transient HTTP 429 quota and 503 service errors.
+
+        Callers must use this helper only for writes that are safe
+        to repeat without creating duplicate data.
+        """
+        retry_delays = (
+            15,
+            30,
+        )
+
+        for attempt in range(
+            1,
+            max_attempts + 1,
+        ):
+            try:
+                return func(
+                    *args,
+                    **kwargs,
+                )
+
+            except Exception as error:
+                if not self._is_sheets_transient_error(
+                    error
+                ):
+                    raise
+
+                if attempt >= max_attempts:
+                    raise
+
+                delay_index = min(
+                    attempt - 1,
+                    len(retry_delays) - 1,
+                )
+
+                wait_seconds = (
+                    retry_delays[
+                        delay_index
+                    ]
+                )
+
+                print(
+                    f"{label} hit Google Sheets "
+                    f"transient 429/503 error "
                     f"(attempt "
                     f"{attempt}/{max_attempts}). "
                     f"Retrying in "
@@ -296,29 +363,39 @@ class SheetsClient:
                     worksheet.get_all_values,
                     label=(
                         "Google Sheets table read: "
-                        f"{worksheet.title}"
+                        f"{getattr(worksheet, 'title', 'worksheet')}"
                     ),
                 )
             )
 
         table = [columns, *rows]
 
-        worksheet.update(
+        self._sheets_write_with_transient_retry(
+            worksheet.update,
             values=table,
             range_name=(
                 f"A1:{last_column}{len(table)}"
             ),
             value_input_option="USER_ENTERED",
+            label=(
+                "Google Sheets table write: "
+                f"{getattr(worksheet, 'title', 'worksheet')}"
+            ),
         )
 
         if existing_row_count > len(table):
-            worksheet.batch_clear(
+            self._sheets_write_with_transient_retry(
+                worksheet.batch_clear,
                 [
                     (
                         f"A{len(table) + 1}:"
                         f"{last_column}{existing_row_count}"
                     )
-                ]
+                ],
+                label=(
+                    "Google Sheets table clear: "
+                    f"{getattr(worksheet, 'title', 'worksheet')}"
+                ),
             )
 
         cache = getattr(
@@ -393,7 +470,10 @@ class SheetsClient:
             ),
         )
     def test_connection(self) -> list[str]:
-        worksheets = self.spreadsheet.worksheets()
+        worksheets = self._sheets_read_with_quota_retry(
+            self.spreadsheet.worksheets,
+            label="Google Sheets worksheet list",
+        )
 
         return [
             worksheet.title
@@ -1188,7 +1268,7 @@ class SheetsClient:
                     worksheet.get_all_values,
                     label=(
                         "Google Sheets formatting read: "
-                        f"{worksheet.title}"
+                        f"{getattr(worksheet, 'title', 'worksheet')}"
                     ),
                 )
             )
@@ -1641,10 +1721,12 @@ class SheetsClient:
                     }
                 })
 
-        self.spreadsheet.batch_update(
+        self._sheets_write_with_transient_retry(
+            self.spreadsheet.batch_update,
             {
                 "requests": requests,
-            }
+            },
+            label="Google Sheets worksheet formatting",
         )
 
     def _apply_trading_workbook_structure(
@@ -1684,7 +1766,10 @@ class SheetsClient:
 
         if worksheets is None:
             worksheets = (
-                self.spreadsheet.worksheets()
+                self._sheets_read_with_quota_retry(
+                    self.spreadsheet.worksheets,
+                    label="Google Sheets worksheet list",
+                )
             )
 
         worksheets = list(worksheets)
@@ -1723,8 +1808,10 @@ class SheetsClient:
         ]
 
         if current_titles != target_titles:
-            self.spreadsheet.reorder_worksheets(
-                target
+            self._sheets_write_with_transient_retry(
+                self.spreadsheet.reorder_worksheets,
+                target,
+                label="Google Sheets worksheet reorder",
             )
 
         visibility_requests = []
@@ -1755,9 +1842,13 @@ class SheetsClient:
                 }
             })
 
-        self.spreadsheet.batch_update({
-            "requests": visibility_requests,
-        })
+        self._sheets_write_with_transient_retry(
+            self.spreadsheet.batch_update,
+            {
+                "requests": visibility_requests,
+            },
+            label="Google Sheets worksheet visibility",
+        )
 
         return True
 
@@ -1770,7 +1861,10 @@ class SheetsClient:
         formatted = 0
 
         worksheets = (
-            self.spreadsheet.worksheets()
+            self._sheets_read_with_quota_retry(
+                self.spreadsheet.worksheets,
+                label="Google Sheets worksheet list",
+            )
         )
 
         for worksheet in worksheets:
@@ -1810,7 +1904,7 @@ class SheetsClient:
                 worksheet.get_all_values,
                 label=(
                     "Google Sheets date lookup: "
-                    f"{worksheet.title}"
+                    f"{getattr(worksheet, 'title', 'worksheet')}"
                 ),
             )
         )
@@ -1840,8 +1934,10 @@ class SheetsClient:
 
         try:
             _, scanner_rows = self._sheet_rows_for_date(
-                self.spreadsheet.worksheet(
-                    "Scanner Dashboard"
+                self._sheets_read_with_quota_retry(
+                    self.spreadsheet.worksheet,
+                    "Scanner Dashboard",
+                    label="Google Sheets worksheet lookup: Scanner Dashboard",
                 ),
                 date_str,
             )
@@ -3808,7 +3904,10 @@ class SheetsClient:
                 status,
             ])
 
-        worksheet.clear()
+        self._sheets_write_with_transient_retry(
+            worksheet.clear,
+            label=f"Google Sheets clear: {sheet_name}",
+        )
 
         table = [
             columns,
@@ -3817,20 +3916,24 @@ class SheetsClient:
 
         last_column = "K"
 
-        worksheet.resize(
+        self._sheets_write_with_transient_retry(
+            worksheet.resize,
             rows=max(
                 250,
                 len(table) + 20,
             ),
             cols=len(columns),
+            label=f"Google Sheets resize: {sheet_name}",
         )
 
-        worksheet.update(
+        self._sheets_write_with_transient_retry(
+            worksheet.update,
             range_name=(
                 f"A1:{last_column}{len(table)}"
             ),
             values=table,
             value_input_option="USER_ENTERED",
+            label=f"Google Sheets write: {sheet_name}",
         )
 
         self.format_worksheet(
