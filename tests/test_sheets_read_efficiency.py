@@ -234,3 +234,63 @@ def test_sheets_read_raises_after_final_429(
 
     assert len(attempts) == 3
     assert sleeps == [15, 30]
+
+
+def test_sheets_read_retries_503(monkeypatch):
+    client = object.__new__(SheetsClient)
+
+    attempts = []
+    sleeps = []
+
+    monkeypatch.setattr(
+        "trading_bot.sheets_client.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    def flaky_read():
+        attempts.append("attempt")
+
+        if len(attempts) < 3:
+            raise _api_error(503)
+
+        return [["ok"]]
+
+    result = client._sheets_read_with_quota_retry(
+        flaky_read,
+        label="test read",
+    )
+
+    assert result == [["ok"]]
+    assert len(attempts) == 3
+    assert sleeps == [15, 30]
+
+
+
+
+def test_sheets_write_retries_503(monkeypatch):
+    client = object.__new__(SheetsClient)
+
+    attempts = []
+    sleeps = []
+
+    monkeypatch.setattr(
+        "trading_bot.sheets_client.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+
+    def flaky_write():
+        attempts.append("attempt")
+
+        if len(attempts) < 3:
+            raise _api_error(503)
+
+        return "written"
+
+    result = client._sheets_write_with_transient_retry(
+        flaky_write,
+        label="test write",
+    )
+
+    assert result == "written"
+    assert len(attempts) == 3
+    assert sleeps == [15, 30]
