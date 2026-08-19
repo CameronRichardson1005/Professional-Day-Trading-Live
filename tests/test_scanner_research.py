@@ -12,6 +12,7 @@ from trading_bot.scanner_research import (
     build_v4_factor_scores,
     log_dollar_volume_score,
     log_volume_score,
+    manipulation_atr_dead_zone,
     manipulation_opportunity,
     quick_flip_opportunity,
     rank_webull_v4_model,
@@ -154,6 +155,31 @@ def test_factor_scores_handle_constant_factor():
         score.equal_weight_factor_score
         == pytest.approx(0.0)
         for score in scores
+    )
+
+
+def test_manipulation_atr_dead_zone_boundaries():
+    atr = 2.0
+
+    assert not manipulation_atr_dead_zone(
+        opening_range=0.50,
+        atr_14=atr,
+    )
+    assert not manipulation_atr_dead_zone(
+        opening_range=0.7498,
+        atr_14=atr,
+    )
+    assert manipulation_atr_dead_zone(
+        opening_range=0.75,
+        atr_14=atr,
+    )
+    assert manipulation_atr_dead_zone(
+        opening_range=0.8998,
+        atr_14=atr,
+    )
+    assert not manipulation_atr_dead_zone(
+        opening_range=0.90,
+        atr_14=atr,
     )
 
 

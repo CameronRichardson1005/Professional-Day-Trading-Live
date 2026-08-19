@@ -17,6 +17,37 @@ from .scanner import (
 
 DOLLAR_VOLUME_SCALE = 1_000_000.0
 
+MANIPULATION_ATR_DEAD_ZONE_LOWER = 0.375
+MANIPULATION_ATR_DEAD_ZONE_UPPER = 0.45
+
+
+def manipulation_atr_dead_zone(
+        *,
+        opening_range: float,
+        atr_14: float,
+) -> bool:
+    """
+    Research-only Manipulation ATR dead-zone candidate.
+
+    The production minimum remains opening range >= 0.25 x ATR(14).
+    This helper only identifies the frozen research exclusion band.
+    """
+    opening_range = float(opening_range)
+    atr_14 = float(atr_14)
+
+    if opening_range < 0:
+        raise ValueError("Opening range cannot be negative.")
+    if atr_14 <= 0:
+        raise ValueError("ATR(14) must be positive.")
+
+    ratio = opening_range / atr_14
+
+    return (
+        MANIPULATION_ATR_DEAD_ZONE_LOWER
+        <= ratio
+        < MANIPULATION_ATR_DEAD_ZONE_UPPER
+    )
+
 
 @dataclass(frozen=True)
 class ScannerFactorScores:
