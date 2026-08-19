@@ -56,8 +56,6 @@ CANDIDATE_TICKERS = [
     "MU",
     "F",
     "NIO",
-    "LCID",
-    "MARA",
     "RIOT",
     "HOOD",
     "AFRM",
