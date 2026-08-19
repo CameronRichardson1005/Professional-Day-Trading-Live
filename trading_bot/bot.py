@@ -1844,7 +1844,10 @@ class TradingBot:
             if (
                 not isinstance(preview, dict)
                 or preview.get("status")
-                != "PREVIEW READY"
+                not in {
+                    "PREVIEW READY",
+                    "PREVIEW FAILED",
+                }
             ):
                 continue
 
@@ -1878,7 +1881,10 @@ class TradingBot:
                     "recommendedAllocation",
                     "",
                 ),
-                "status": "PREVIEW READY",
+                "status": preview.get(
+                    "status",
+                    "",
+                ),
             })
 
         for preview in getattr(
@@ -1889,7 +1895,10 @@ class TradingBot:
             if (
                 not isinstance(preview, dict)
                 or preview.get("status")
-                != "PREVIEW READY"
+                not in {
+                    "PREVIEW READY",
+                    "PREVIEW FAILED",
+                }
             ):
                 continue
 
@@ -1942,10 +1951,13 @@ class TradingBot:
                     "recommendedAllocation",
                     "",
                 ),
-                "status": "PREVIEW READY",
+                "status": preview.get(
+                    "status",
+                    "",
+                ),
             })
 
-        ready_qf_symbols = {
+        previewed_qf_symbols = {
             str(
                 preview.get(
                     "symbol",
@@ -1960,7 +1972,10 @@ class TradingBot:
             if (
                 isinstance(preview, dict)
                 and preview.get("status")
-                == "PREVIEW READY"
+                in {
+                    "PREVIEW READY",
+                    "PREVIEW FAILED",
+                }
             )
         }
 
@@ -2009,7 +2024,7 @@ class TradingBot:
                 symbol
             ).strip().upper()
 
-            if symbol_upper in ready_qf_symbols:
+            if symbol_upper in previewed_qf_symbols:
                 continue
 
             if manipulation_funded:
