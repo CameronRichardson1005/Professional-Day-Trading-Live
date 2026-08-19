@@ -522,7 +522,7 @@ class TradingBot:
             webull_history = (
                 webull.get_daily_history(
                     symbols_csv=universe_csv,
-                    count=400,
+                    count=600,
                 )
             )
 
@@ -1107,7 +1107,7 @@ class TradingBot:
         daily_history = (
             webull.get_daily_history(
                 symbols_csv=symbols_csv,
-                count=400,
+                count=600,
             )
         )
 

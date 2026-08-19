@@ -51,7 +51,32 @@ def nyse_holidays(year: int) -> set[date]:
             _observed(date(year, 6, 19))
         )
 
+    holidays.update(
+        _nyse_special_closures(year)
+    )
+
     return holidays
+
+
+def _nyse_special_closures(
+        year: int,
+) -> set[date]:
+    """
+    One-off full-day NYSE closures that are not part of
+    the standard recurring holiday calendar.
+    """
+    closures = {
+        2025: {
+            date(2025, 1, 9),
+        },
+    }
+
+    return set(
+        closures.get(
+            year,
+            set(),
+        )
+    )
 
 
 def _observed(value: date) -> date:
