@@ -40,6 +40,10 @@ class ShadowAllocationComparison:
     risk_adjusted_weight: float
     risk_adjusted_allocation: float
 
+    entry_price: float | None
+    equal_fractional_quantity: float
+    risk_adjusted_fractional_quantity: float
+
     eligible: bool
     rejection_reason: str | None
 
@@ -62,6 +66,42 @@ class DailyShadowAllocationReport:
 
     cash_retained: float
     shadow_only: bool = True
+
+
+def fractional_quantity_for_shadow_allocation(
+    *,
+    allocation: float,
+    entry_price: float | None,
+) -> float:
+    """
+    Convert a hypothetical shadow dollar allocation into a
+    fractional-share quantity at the intended strategy entry.
+
+    This is research metadata only. It does not alter production
+    order sizing or broker execution.
+    """
+    dollars = max(
+        0.0,
+        float(allocation),
+    )
+
+    if (
+        dollars <= 0
+        or entry_price is None
+    ):
+        return 0.0
+
+    entry = float(
+        entry_price
+    )
+
+    if entry <= 0:
+        return 0.0
+
+    return round(
+        dollars / entry,
+        8,
+    )
 
 
 def _date_text(
@@ -313,6 +353,14 @@ def build_daily_shadow_allocation_report(
         plan
     )
 
+    opportunity_by_key = {
+        (
+            item.symbol,
+            item.strategy,
+        ): item
+        for item in opportunities
+    }
+
     comparisons = tuple(
         ShadowAllocationComparison(
             symbol=item.symbol,
@@ -334,6 +382,44 @@ def build_daily_shadow_allocation_report(
             ),
             risk_adjusted_allocation=(
                 item.recommended_allocation
+            ),
+            entry_price=(
+                opportunity_by_key[
+                    (
+                        item.symbol,
+                        item.strategy,
+                    )
+                ].entry_price
+            ),
+            equal_fractional_quantity=(
+                fractional_quantity_for_shadow_allocation(
+                    allocation=(
+                        equal_allocation
+                    ),
+                    entry_price=(
+                        opportunity_by_key[
+                            (
+                                item.symbol,
+                                item.strategy,
+                            )
+                        ].entry_price
+                    ),
+                )
+            ),
+            risk_adjusted_fractional_quantity=(
+                fractional_quantity_for_shadow_allocation(
+                    allocation=(
+                        item.recommended_allocation
+                    ),
+                    entry_price=(
+                        opportunity_by_key[
+                            (
+                                item.symbol,
+                                item.strategy,
+                            )
+                        ].entry_price
+                    ),
+                )
             ),
             eligible=item.eligible,
             rejection_reason=(
@@ -371,6 +457,10 @@ def shadow_report_to_dict(
         ),
         "model": report.model,
         "shadowOnly": True,
+        "fractionalSizingResearch": True,
+        "fractionalExecutionAssumption": (
+            "ALLOCATION_DIVIDED_BY_LIMIT_ENTRY"
+        ),
         "deployablePool": (
             report.deployable_pool
         ),
@@ -407,6 +497,15 @@ def shadow_report_to_dict(
                 ),
                 "riskAdjustedAllocation": (
                     item.risk_adjusted_allocation
+                ),
+                "entryPrice": (
+                    item.entry_price
+                ),
+                "equalFractionalQuantity": (
+                    item.equal_fractional_quantity
+                ),
+                "riskAdjustedFractionalQuantity": (
+                    item.risk_adjusted_fractional_quantity
                 ),
                 "eligible": (
                     item.eligible

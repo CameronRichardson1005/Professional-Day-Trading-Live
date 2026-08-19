@@ -19,6 +19,7 @@ from .risk_adjusted_shadow_report import (
     StrategyPerformanceContext,
     build_daily_shadow_allocation_report,
     build_strategy_performance_context,
+    fractional_quantity_for_shadow_allocation,
     shadow_report_to_dict,
 )
 from .risk_adjusted_strategy_adapters import (
@@ -754,6 +755,14 @@ def build_causal_dominance_equal_weight_shadow(
         )
     )
 
+    opportunity_by_key = {
+        (
+            item.strategy,
+            item.symbol,
+        ): item
+        for item in opportunities
+    }
+
     def event_payload(
         event_time,
         plan,
@@ -790,6 +799,35 @@ def build_causal_dominance_equal_weight_shadow(
                     )
                 ),
                 2,
+            )
+
+            opportunity = (
+                opportunity_by_key.get(
+                    key
+                )
+            )
+
+            entry_price = (
+                None
+                if opportunity is None
+                else opportunity.entry_price
+            )
+
+            allocation[
+                "entryPrice"
+            ] = entry_price
+
+            allocation[
+                "fractionalQuantity"
+            ] = (
+                fractional_quantity_for_shadow_allocation(
+                    allocation=(
+                        allocation[
+                            "recommendedAllocation"
+                        ]
+                    ),
+                    entry_price=entry_price,
+                )
             )
 
         return payload
@@ -892,6 +930,10 @@ def build_causal_dominance_equal_weight_shadow(
             "CAUSAL_DOMINANCE_EQUAL_WEIGHT_SHADOW_V1"
         ),
         "shadowOnly": True,
+        "fractionalSizingResearch": True,
+        "fractionalExecutionAssumption": (
+            "ALLOCATION_DIVIDED_BY_LIMIT_ENTRY"
+        ),
         "productionSizingChanged": False,
         "sequence": (
             "MANIPULATION_09:45_THEN_"

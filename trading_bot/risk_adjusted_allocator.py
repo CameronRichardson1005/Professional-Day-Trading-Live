@@ -42,6 +42,10 @@ class RiskAdjustedOpportunity:
     setup_quality: float = 1.0
     liquidity_quality: float = 1.0
 
+    # Intended strategy entry used only for shadow/research
+    # execution sizing. It does not influence scoring.
+    entry_price: float | None = None
+
 
 @dataclass(frozen=True)
 class RiskAdjustedScore:

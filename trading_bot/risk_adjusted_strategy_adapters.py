@@ -160,6 +160,10 @@ def build_manipulation_opportunity(
         liquidity_quality=(
             liquidity_quality
         ),
+        entry_price=round(
+            entry,
+            6,
+        ),
     )
 
 
@@ -312,5 +316,9 @@ def build_quick_flip_opportunity(
         setup_quality=setup_quality,
         liquidity_quality=(
             liquidity_quality
+        ),
+        entry_price=round(
+            entry,
+            6,
         ),
     )
