@@ -5,6 +5,8 @@ def test_mara_and_lcid_are_excluded_from_active_candidate_universe():
     excluded = {
         "MARA",
         "LCID",
+        "RIOT",
+        "SNAP",
     }
 
     assert excluded.isdisjoint(
@@ -19,6 +21,8 @@ def test_mara_and_lcid_are_excluded_from_runtime_tickers():
     excluded = {
         "MARA",
         "LCID",
+        "RIOT",
+        "SNAP",
     }
 
     assert excluded.isdisjoint(

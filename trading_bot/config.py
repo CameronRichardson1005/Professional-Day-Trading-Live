@@ -44,7 +44,6 @@ TICKERS = [
 # each session, but only the top three eligible candidates join
 # the six core symbols for live tracking.
 CANDIDATE_TICKERS = [
-    "SNAP",
     "UBER",
     "PINS",
     "RGTI",
@@ -56,7 +55,6 @@ CANDIDATE_TICKERS = [
     "MU",
     "F",
     "NIO",
-    "RIOT",
     "HOOD",
     "AFRM",
     "DKNG",

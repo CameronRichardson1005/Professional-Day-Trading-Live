@@ -166,7 +166,7 @@ def test_scanner_universe_has_controlled_size():
     assert 20 <= len(universe) <= 30
     assert len(universe) == len(set(universe))
     assert len(TICKERS) == 6
-    assert len(CANDIDATE_TICKERS) == 17
+    assert len(CANDIDATE_TICKERS) == 15
     assert "IONQ" in CANDIDATE_TICKERS
 
 
