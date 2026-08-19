@@ -53,10 +53,10 @@ class FakeRecord:
         self,
         *,
         status="REJECTED_SHADOW",
-        reason="TRADING_KILL_SWITCH_ACTIVE",
+        decision_reason="TRADING_KILL_SWITCH_ACTIVE",
     ):
         self.status = status
-        self.reason = reason
+        self.decision_reason = decision_reason
 
 
 class FakeShadowService:

@@ -435,7 +435,7 @@ class TradingBot:
         reason = str(
             getattr(
                 record,
-                "reason",
+                "decision_reason",
                 "UNKNOWN",
             )
         )
