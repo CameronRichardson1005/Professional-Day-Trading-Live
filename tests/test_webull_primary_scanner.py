@@ -97,6 +97,7 @@ class FallbackAlpaca:
 
 def test_production_scanner_prefers_webull(
         monkeypatch,
+        capsys,
 ):
     monkeypatch.setattr(
         bot_module,
@@ -131,6 +132,20 @@ def test_production_scanner_prefers_webull(
         len(TICKERS)
         + bot.scanner.rules.candidate_limit
     )
+
+    output = capsys.readouterr().out
+
+    assert (
+        "Production scanner: V2_LOG_DOLLAR_VOLUME"
+        in output
+    )
+
+    assert "Selected symbols (V2):" in output
+
+    # Display-only alternatives follow the same V2 ranking used
+    # for production selection. V1 remains research/control only.
+    assert "V2 score" in output
+    assert "V1 score" not in output
 
 
 def test_webull_failure_falls_back_to_alpaca(

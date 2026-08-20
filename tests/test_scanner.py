@@ -1,3 +1,4 @@
+from trading_bot.scanner import ScannerRules
 from trading_bot.scanner import StockScanner
 from trading_bot.scanner import StockStats
 
@@ -265,4 +266,52 @@ def test_scanner_alternatives_are_ranks_four_to_six():
         (4, "D"),
         (5, "E"),
         (6, "F"),
+    ]
+
+
+def test_production_scanner_uses_v2_dollar_volume_not_v1_share_volume():
+    scanner = StockScanner(
+        current_symbols=[],
+        rules=ScannerRules(candidate_limit=1),
+    )
+
+    # LOW_DOLLAR wins the old V1 share-volume score because it
+    # trades many more shares.
+    low_dollar = make_stats(
+        "LOW_DOLLAR",
+        avg_price=2.50,
+        avg_volume=5_000_000,
+        avg_range_pct=8.0,
+    )
+
+    # HIGH_DOLLAR trades fewer shares, but far more dollars:
+    #   LOW_DOLLAR  = $12.5M average dollar volume
+    #   HIGH_DOLLAR = $50.0M average dollar volume
+    #
+    # V2 must therefore rank HIGH_DOLLAR above LOW_DOLLAR.
+    high_dollar = make_stats(
+        "HIGH_DOLLAR",
+        avg_price=50.00,
+        avg_volume=1_000_000,
+        avg_range_pct=8.0,
+    )
+
+    # Preserve the old V1 score for research/control comparison.
+    assert (
+        low_dollar.ranking_score
+        > high_dollar.ranking_score
+    )
+
+    selected = scanner.select_candidates(
+        [
+            low_dollar,
+            high_dollar,
+        ]
+    )
+
+    assert [
+        row.symbol
+        for row in selected
+    ] == [
+        "HIGH_DOLLAR",
     ]

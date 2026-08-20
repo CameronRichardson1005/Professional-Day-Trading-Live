@@ -171,7 +171,8 @@ def load_live_shadow_history(
     """
     Load the newest valid no-lookahead realized-master history.
 
-    V1 is the current production scanner control.
+    The default v1 model refers to the historical
+    V1 scanner research/control baseline.
     """
     source_path = (
         find_latest_realized_master_before(

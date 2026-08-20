@@ -1185,6 +1185,11 @@ class TradingBot:
                 selected_source,
             )
 
+            print(
+                "Production scanner: "
+                "V2_LOG_DOLLAR_VOLUME"
+            )
+
             selected_symbols = (
                 self.scanner.select_symbols(
                     statistics,
@@ -1370,8 +1375,8 @@ class TradingBot:
                     print(
                         f"  Rank {rank}: "
                         f"{stats.symbol} · "
-                        f"V1 score "
-                        f"{stats.ranking_score:.4f}"
+                        f"V2 score "
+                        f"{stats.v2_ranking_score:.4f}"
                     )
             else:
                 print("  None")
@@ -1398,8 +1403,17 @@ class TradingBot:
             selected_symbols
         )
 
+        selection_label = (
+            "Selected symbols (V2):"
+            if (
+                statistics is not None
+                and selected_source is not None
+            )
+            else "Selected symbols:"
+        )
+
         print(
-            "Selected symbols:",
+            selection_label,
             ", ".join(
                 selected_symbols
             ),
@@ -5769,7 +5783,7 @@ class TradingBot:
         Shadow research only:
         - Webull scanner observations only;
         - dates must be after the 2026-08-13 freeze;
-        - reuses the exact production V1 scanner statistics;
+        - reuses the exact historical production V1 scanner statistics;
         - evaluates the completed regular session;
         - never changes production selections or signals;
         - never creates previews or broker/paper orders.

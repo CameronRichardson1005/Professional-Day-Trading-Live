@@ -9,13 +9,11 @@ from typing import Iterable
 from .models import Stock
 from .quick_flip_strategy import QuickFlipSignal
 from .scanner import (
+    DOLLAR_VOLUME_SCALE,
     ScannerRules,
     StockScanner,
     StockStats,
 )
-
-
-DOLLAR_VOLUME_SCALE = 1_000_000.0
 
 
 @dataclass(frozen=True)
@@ -49,7 +47,7 @@ class QuickFlipOpportunity:
 
 def log_volume_score(stats: StockStats) -> float:
     """
-    Production-control formula.
+    V1 research/control formula.
 
     This intentionally matches StockStats.ranking_score.
     """
@@ -76,15 +74,9 @@ def log_dollar_volume_score(
         stats: StockStats,
 ) -> float:
     """
-    Research V2.
-
-    Preserve percentage movement as the primary factor while
-    replacing raw-share liquidity with dollar liquidity.
+    V2 scanner score used by production and research comparison.
     """
-    return (
-        stats.avg_range_pct
-        * log_dollar_volume(stats)
-    )
+    return stats.v2_ranking_score
 
 
 def _z_scores(
@@ -305,8 +297,9 @@ def rank_scanner_models(
     """
     Rank the same eligible universe under several research models.
 
-    V1 is the current production control.
-    V2 replaces share-volume liquidity with dollar liquidity.
+    V1 is retained as the research/control baseline.
+    V2 is the current production scanner and replaces
+    share-volume liquidity with dollar liquidity.
     V3 uses equal-weight cross-sectional standardized factors.
 
     All eligible candidates are returned so downstream research can

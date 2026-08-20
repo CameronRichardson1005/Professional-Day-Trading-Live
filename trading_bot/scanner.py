@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 
+DOLLAR_VOLUME_SCALE = 1_000_000.0
+
+
 @dataclass(frozen=True)
 class StockStats:
     symbol: str
@@ -16,18 +19,36 @@ class StockStats:
     @property
     def ranking_score(self) -> float:
         """
-        Rank eligible stocks by percentage movement while
-        rewarding liquidity without allowing extremely large
-        share volume to dominate the score.
+        V1 research/control score.
 
-        Long-history research from 2025-01-02 through
-        2026-08-11 found this log-volume ranking materially
-        more robust than the previous linear-volume ranking.
+        Rank by percentage movement while rewarding share-volume
+        liquidity without allowing extremely large share volume
+        to dominate the score.
         """
         return (
             self.avg_range_pct
             * math.log1p(
                 self.avg_volume / 500_000
+            )
+        )
+
+    @property
+    def v2_ranking_score(self) -> float:
+        """
+        Production V2 scanner score.
+
+        Preserve percentage movement as the primary factor while
+        replacing raw-share liquidity with dollar liquidity.
+        """
+        dollar_volume = (
+            self.avg_price
+            * self.avg_volume
+        )
+
+        return (
+            self.avg_range_pct
+            * math.log1p(
+                dollar_volume / DOLLAR_VOLUME_SCALE
             )
         )
 
@@ -113,9 +134,10 @@ class StockScanner:
             statistics: Iterable[StockStats],
     ) -> list[StockStats]:
         """
-        Return every eligible candidate in the exact V1 ranking.
+        Return every eligible candidate in production V2 ranking.
 
-        Production selection remains limited by candidate_limit.
+        V1 remains available through StockStats.ranking_score for
+        research/control comparison.
         """
         current_set = set(self.current_symbols)
 
@@ -128,7 +150,7 @@ class StockScanner:
 
         eligible.sort(
             key=lambda stats: (
-                -stats.ranking_score,
+                -stats.v2_ranking_score,
                 stats.symbol,
             )
         )
