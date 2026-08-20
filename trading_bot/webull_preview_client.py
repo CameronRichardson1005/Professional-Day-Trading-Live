@@ -5,7 +5,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from webull.core.client import ApiClient
 from webull.trade.trade_client import TradeClient
 
 from .config import (
@@ -16,6 +15,9 @@ from .config import (
     WEBULL_PREVIEW_RISK_DOLLARS,
 )
 from .models import Stock
+from .webull_sdk_security import (
+    build_secure_webull_api_client,
+)
 
 
 @dataclass(frozen=True)
@@ -52,15 +54,9 @@ class WebullPreviewClient:
                 "WEBULL_APP_SECRET is not configured."
             )
 
-        api_client = ApiClient(
+        api_client = build_secure_webull_api_client(
             WEBULL_APP_KEY,
             WEBULL_APP_SECRET,
-            "us",
-        )
-
-        api_client.add_endpoint(
-            "us",
-            "api.webull.com",
         )
 
         self._trade_client = TradeClient(api_client)

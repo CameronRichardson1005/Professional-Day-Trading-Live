@@ -177,14 +177,14 @@ class TradingBot:
         if existing is not None:
             return existing
 
-        import logging
-
-        from webull.core.client import ApiClient
         from webull.data.data_client import DataClient
 
         from .config import (
             WEBULL_APP_KEY,
             WEBULL_APP_SECRET,
+        )
+        from .webull_sdk_security import (
+            build_secure_webull_api_client,
         )
 
         if not WEBULL_APP_KEY:
@@ -197,31 +197,14 @@ class TradingBot:
                 "WEBULL_APP_SECRET is not configured."
             )
 
-        # Suppress Webull SDK token metadata logging.
-        logging.disable(
-            logging.CRITICAL
+        api_client = build_secure_webull_api_client(
+            WEBULL_APP_KEY,
+            WEBULL_APP_SECRET,
         )
 
-        try:
-            api_client = ApiClient(
-                WEBULL_APP_KEY,
-                WEBULL_APP_SECRET,
-                "us",
-            )
-
-            api_client.add_endpoint(
-                "us",
-                "api.webull.com",
-            )
-
-            data_client = DataClient(
-                api_client
-            )
-
-        finally:
-            logging.disable(
-                logging.NOTSET
-            )
+        data_client = DataClient(
+            api_client
+        )
 
         self.webull_strategy_market_data = (
             WebullStrategyMarketData(

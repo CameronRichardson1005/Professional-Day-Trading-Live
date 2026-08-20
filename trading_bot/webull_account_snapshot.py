@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from webull.core.client import ApiClient
 from webull.trade.trade_client import TradeClient
 
 from .config import (
@@ -17,6 +16,9 @@ from .webull_account_parser import (
     parse_positions,
 )
 from .webull_safety import WebullAccountState
+from .webull_sdk_security import (
+    build_secure_webull_api_client,
+)
 
 
 class WebullAccountSnapshotError(RuntimeError):
@@ -49,15 +51,9 @@ class WebullAccountSnapshotClient:
                 "WEBULL_APP_SECRET is not configured."
             )
 
-        api_client = ApiClient(
+        api_client = build_secure_webull_api_client(
             WEBULL_APP_KEY,
             WEBULL_APP_SECRET,
-            "us",
-        )
-
-        api_client.add_endpoint(
-            "us",
-            "api.webull.com",
         )
 
         self._trade_client = TradeClient(api_client)
