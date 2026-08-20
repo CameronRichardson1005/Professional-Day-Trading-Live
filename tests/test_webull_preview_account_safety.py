@@ -332,3 +332,200 @@ def test_service_exposes_no_order_actions():
     assert not hasattr(service, "submit_order")
     assert not hasattr(service, "replace_order")
     assert not hasattr(service, "cancel_order")
+
+
+def test_live_equal_weight_rebalances_unbuyable_whole_share_budgets(
+    monkeypatch,
+):
+    """
+    Regression for the 2026-08-20 small-account failure.
+
+    A $50 cash account has a $45 deployable preview pool at the
+    90% deployment fraction. Five live Manipulation INVEST
+    opportunities initially receive about $9 each.
+
+    Candidates whose equal-weight budget cannot buy one whole
+    share must release that capital. The remaining funded,
+    whole-share-feasible candidates are then equal-weighted from
+    the same original safe pool.
+
+    Broker submission remains disabled.
+    """
+    from types import SimpleNamespace
+
+    import trading_bot.webull_preview_service as module
+
+    stocks = {
+        "BBAI": invest_stock(
+            "BBAI",
+            limit_buy=3.12,
+            trading_stop=3.00,
+        ),
+        "OPEN": invest_stock(
+            "OPEN",
+            limit_buy=3.485,
+            trading_stop=3.30,
+        ),
+        "SOFI": invest_stock(
+            "SOFI",
+            limit_buy=18.37,
+            trading_stop=18.00,
+        ),
+        "RIVN": invest_stock(
+            "RIVN",
+            limit_buy=14.00,
+            trading_stop=13.80,
+        ),
+        "PLTR": invest_stock(
+            "PLTR",
+            limit_buy=170.00,
+            trading_stop=169.00,
+        ),
+    }
+
+    def fake_live_plan(
+        *,
+        stocks,
+        trading_date,
+        deployable_pool,
+    ):
+        symbols = (
+            "BBAI",
+            "OPEN",
+            "SOFI",
+            "RIVN",
+            "PLTR",
+        )
+
+        equal_budget = round(
+            deployable_pool / len(symbols),
+            2,
+        )
+
+        return SimpleNamespace(
+            decision_reason=(
+                "EQUAL_WEIGHT_PORTFOLIO"
+            ),
+            allocations=tuple(
+                SimpleNamespace(
+                    symbol=symbol,
+                    recommended_allocation=(
+                        equal_budget
+                    ),
+                    allocation_weight=0.2,
+                    score=1.0,
+                )
+                for symbol in symbols
+            ),
+        )
+
+    monkeypatch.setattr(
+        module,
+        "build_live_manipulation_allocation_plan",
+        fake_live_plan,
+    )
+
+    preview_client = FakePreviewClient()
+
+    service = WebullPreviewService(
+        client=preview_client,
+        snapshot_client=FakeSnapshotClient(
+            cash_account(
+                available_cash=50.0,
+            )
+        ),
+    )
+
+    with (
+        patch(
+            "trading_bot.webull_preview_service."
+            "WEBULL_PREVIEW_ENABLED",
+            True,
+        ),
+        patch(
+            "trading_bot.webull_preview_service."
+            "WEBULL_CAPITAL_DEPLOYMENT_FRACTION",
+            0.90,
+        ),
+        patch(
+            "trading_bot.webull_preview_client."
+            "WEBULL_PREVIEW_RISK_DOLLARS",
+            1000.0,
+        ),
+        patch(
+            "trading_bot.webull_preview_client."
+            "WEBULL_PREVIEW_MAX_POSITION_VALUE",
+            500.0,
+        ),
+        patch(
+            "trading_bot.webull_preview_client."
+            "WEBULL_PREVIEW_MAX_SHARES",
+            1000,
+        ),
+    ):
+        results = service.prepare_previews(
+            stocks,
+            trading_date="2026-08-20",
+        )
+
+    ready = {
+        result["symbol"]: result
+        for result in results
+        if result["status"] == "PREVIEW READY"
+    }
+
+    # Find the largest equal-weight subset that can actually buy
+    # at least one whole share at each Manipulation limit.
+    #
+    # $45 / 3 = $15, so BBAI, OPEN, and RIVN are executable.
+    # SOFI and PLTR still require more than $15 for one share.
+    assert set(ready) == {
+        "BBAI",
+        "OPEN",
+        "RIVN",
+    }
+
+    # Unusable allocations must be redistributed instead of
+    # leaving most of the $45 safe pool stranded.
+    assert (
+        ready["BBAI"]["recommendedAllocation"]
+        == 15.00
+    )
+    assert (
+        ready["OPEN"]["recommendedAllocation"]
+        == 15.00
+    )
+    assert (
+        ready["RIVN"]["recommendedAllocation"]
+        == 15.00
+    )
+
+    # Metadata describes the executable three-way portfolio.
+    expected_weight = round(1.0 / 3.0, 6)
+
+    assert (
+        ready["BBAI"]["allocationWeight"]
+        == expected_weight
+    )
+    assert (
+        ready["OPEN"]["allocationWeight"]
+        == expected_weight
+    )
+    assert (
+        ready["RIVN"]["allocationWeight"]
+        == expected_weight
+    )
+
+    # Whole-share rounding may leave a few dollars, but should
+    # no longer strand the majority of the deployable pool.
+    actually_deployed = sum(
+        result["estimatedPositionValue"]
+        for result in ready.values()
+    )
+
+    assert actually_deployed > 40.0
+
+    assert (
+        service.committed_policy_decision_reason
+        == "EQUAL_WEIGHT_PORTFOLIO"
+    )

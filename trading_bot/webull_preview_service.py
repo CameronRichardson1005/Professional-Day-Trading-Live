@@ -348,6 +348,165 @@ class WebullPreviewService:
                 in live_policy_plan.allocations
             )
 
+        # Whole-share execution can make an otherwise valid
+        # equal-weight policy impossible for a small account.
+        #
+        # Preserve the committed equal-weight decision by finding
+        # the largest subset of already-funded candidates that can
+        # each buy at least one whole share from an equal split of
+        # the same original safe deployable pool.
+        #
+        # This changes preview sizing only. It does not submit,
+        # modify, replace, or cancel broker orders.
+        if (
+            live_policy_plan is not None
+            and getattr(
+                live_policy_plan,
+                "decision_reason",
+                None,
+            )
+            == "EQUAL_WEIGHT_PORTFOLIO"
+        ):
+            funded_by_symbol = {
+                stock.symbol: stock
+                for stock in invest_stocks
+                if live_policy_allocations.get(
+                    stock.symbol,
+                    0.0,
+                )
+                > 0
+            }
+
+            ordered_funded_stocks = [
+                funded_by_symbol[
+                    allocation.symbol
+                ]
+                for allocation
+                in live_policy_plan.allocations
+                if allocation.symbol
+                in funded_by_symbol
+            ]
+
+            selected_stocks = []
+            selected_budgets = {}
+
+            deployable_cents = max(
+                0,
+                int(
+                    round(
+                        allocation_plan
+                        .deployable_pool
+                        * 100
+                    )
+                ),
+            )
+
+            for candidate_count in range(
+                len(ordered_funded_stocks),
+                0,
+                -1,
+            ):
+                base_cents = (
+                    deployable_cents
+                    // candidate_count
+                )
+
+                if base_cents <= 0:
+                    continue
+
+                base_budget = (
+                    base_cents / 100.0
+                )
+
+                feasible_stocks = []
+
+                for stock in ordered_funded_stocks:
+                    try:
+                        # Local sizing check only. build_request
+                        # does not contact Webull.
+                        client.build_request(
+                            stock,
+                            max_position_value=(
+                                base_budget
+                            ),
+                        )
+                    except ValueError:
+                        continue
+
+                    feasible_stocks.append(
+                        stock
+                    )
+
+                if (
+                    len(feasible_stocks)
+                    < candidate_count
+                ):
+                    continue
+
+                selected_stocks = (
+                    feasible_stocks[
+                        :candidate_count
+                    ]
+                )
+
+                selected_base_cents, remainder = (
+                    divmod(
+                        deployable_cents,
+                        candidate_count,
+                    )
+                )
+
+                selected_budgets = {
+                    stock.symbol: (
+                        selected_base_cents
+                        + (
+                            1
+                            if index < remainder
+                            else 0
+                        )
+                    )
+                    / 100.0
+                    for index, stock
+                    in enumerate(
+                        selected_stocks
+                    )
+                }
+
+                break
+
+            # Start from zero so candidates removed only because
+            # of whole-share feasibility cannot consume preview
+            # capital later in the batch.
+            live_policy_allocations = {
+                symbol: 0.0
+                for symbol
+                in live_policy_allocations
+            }
+
+            live_policy_weights = {
+                symbol: 0.0
+                for symbol
+                in live_policy_weights
+            }
+
+            if selected_stocks:
+                executable_weight = round(
+                    1.0
+                    / len(selected_stocks),
+                    6,
+                )
+
+                for stock in selected_stocks:
+                    live_policy_allocations[
+                        stock.symbol
+                    ] = selected_budgets[
+                        stock.symbol
+                    ]
+
+                    live_policy_weights[
+                        stock.symbol
+                    ] = executable_weight
+
         preview_safety_ceiling = max(
             0.0,
             preview_exposure_ceiling
