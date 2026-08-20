@@ -32,9 +32,6 @@ from .alpaca_client import AlpacaClient
 from .webull_strategy_market_data import (
     WebullStrategyMarketData,
 )
-from .quick_flip_webull_preview_service import (
-    QuickFlipWebullPreviewService,
-)
 from .quick_flip_monitor import (
     QuickFlipMonitor,
     reconcile_minute_bars,
@@ -2621,32 +2618,6 @@ class TradingBot:
                 "DRY-RUN MODE: Cloudflare dashboard "
                 "upload was skipped."
             )
-
-        print()
-        print(
-            "Manipulation opening strategy completed. "
-            "Starting independent Quick Flip monitoring..."
-        )
-
-        try:
-            self.run_quick_flip_monitor(
-                date_str=date_str,
-                data_feed=MARKET_DATA_FEED,
-                stream_factory=None,
-                preview_service_factory=(
-                    QuickFlipWebullPreviewService
-                ),
-                write_sheets=write_sheets,
-            )
-        except Exception as error:
-            print(
-                "Quick Flip live monitoring failed. "
-                "Manipulation results remain preserved."
-            )
-            print(
-                f"Quick Flip error: {error}"
-            )
-
 
         self._run_risk_adjusted_live_shadow_safely(
             date_str=date_str,

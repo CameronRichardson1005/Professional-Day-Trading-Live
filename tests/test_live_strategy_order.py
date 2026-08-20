@@ -6,7 +6,7 @@ from trading_bot.bot import TradingBot
 from trading_bot.models import Stock
 
 
-def test_live_strategy_runs_before_dashboard(
+def test_live_production_stops_after_manipulation_without_quick_flip_routing(
         monkeypatch,
 ):
     events = []
@@ -64,7 +64,7 @@ def test_live_strategy_runs_before_dashboard(
 
     bot.run_quick_flip_monitor = (
         lambda **kwargs: events.append(
-            "quick-flip"
+            "quick-flip-monitor-fetch-preview"
         )
     )
 
@@ -85,18 +85,8 @@ def test_live_strategy_runs_before_dashboard(
         publish_dashboard=True,
     )
 
-    assert "strategy" in events
-    assert "dashboard" in events
-
-    assert events.index(
-        "strategy"
-    ) < events.index(
-        "dashboard"
-    )
-
-
-    assert events.index(
-        "quick-flip"
-    ) < events.index(
-        "risk-shadow"
-    )
+    assert events == [
+        "strategy",
+        "dashboard",
+        "risk-shadow",
+    ]
